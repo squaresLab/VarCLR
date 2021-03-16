@@ -3,38 +3,18 @@ import random
 import numpy as np
 import sys
 import argparse
-import io
 import torch
 from models import Averaging, LSTM, load_model
-from utils import Example
+from utils import Example, get_data
 
 random.seed(1)
 np.random.seed(1)
 torch.manual_seed(1)
 
-def get_data(params):
-    examples = []
-
-    finished = set([]) #check for duplicates
-    with io.open(params.data_file, 'r', encoding='utf-8') as f:
-        for i in f:
-            if i in finished:
-                continue
-            else:
-                finished.add(i)
-
-            i = i.split('\t')
-            if len(i[0].strip()) == 0 or len(i[1].strip()) == 0:
-                continue
-
-            e = (Example(i[0]), Example(i[1]))
-            examples.append(e)
-
-    return examples
-
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--data-file", required=True, help="training data")
+parser.add_argument("--load-emb", default="", type=str, help="load word embedding")
 parser.add_argument("--gpu", default=1, type=int, help="whether to train on gpu")
 parser.add_argument("--dim", default=300, type=int, help="dimension of input embeddings")
 parser.add_argument("--model", default="avg", choices=["avg", "lstm"], help="type of base model to train.")
@@ -58,6 +38,7 @@ parser.add_argument("--share-encoder", default=1, type=int, help="whether to sha
 parser.add_argument("--share-vocab", default=1, type=int, help="whether to share the embeddings")
 parser.add_argument("--scramble-rate", default=0, type=float, help="rate of scrambling")
 parser.add_argument("--sp-model", help="SP model to load for evaluation")
+parser.add_argument("--temperature", default=10, type=float)
 
 args = parser.parse_args()
 

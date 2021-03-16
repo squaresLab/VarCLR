@@ -21,10 +21,14 @@ def load_model(data, args):
     vocab_fr = model['vocab_fr']
     optimizer = model['optimizer']
     epoch = model['epoch']
+    if hasattr(args, "outfile"):
+        model_args.outfile = args.outfile
+    if hasattr(args, "epochs"):
+        model_args.epochs = args.epochs
 
     if model_args.model == "avg":
         model = Averaging(data, model_args, vocab, vocab_fr)
-    elif args.model == "lstm":
+    elif model_args.model == "lstm":
         model = LSTM(data, model_args, vocab, vocab_fr)
 
     model.load_state_dict(state_dict)
@@ -63,9 +67,24 @@ class ParaModel(nn.Module):
         self.sim_loss = nn.MarginRankingLoss(margin=self.delta)
         self.cosine = CosineSimilarity()
 
-        self.embedding = nn.Embedding(len(self.vocab), self.args.dim)
+        if hasattr(args, "load_emb") and args.load_emb:
+            assert self.vocab_fr is None
+            model = torch.load(args.load_emb)
+            state_dict = model['state_dict']
+            model_args = model['args']
+            assert model_args.model == "avg"
+            self.vocab = model['vocab']
+            self.vocab_fr = model['vocab_fr']
+            self.embedding = nn.Embedding(len(self.vocab), self.args.dim)
+            self.embedding.load_state_dict({"weight": state_dict["embedding.weight"]})
+            del model
+        else:
+            self.embedding = nn.Embedding(len(self.vocab), self.args.dim)
         if self.vocab_fr is not None:
             self.embedding_fr = nn.Embedding(len(self.vocab_fr), self.args.dim)
+        self.attn = nn.Parameter(torch.zeros(self.args.dim))
+        nn.init.normal_(self.attn)
+        # self.embedding.requires_grad_(False)
 
         self.sp = None
         if args.sp_model:
@@ -135,6 +154,8 @@ class ParaModel(nn.Module):
 
         try:
             for ep in range(start_epoch, self.args.epochs+1):
+                self.args.temperature = max(1, self.args.temperature * 0.5 ** (1 / 2))
+                print("T = ", self.args.temperature)
                 self.mb = utils.get_minibatches_idx(len(self.data), self.args.batchsize, shuffle=True)
                 self.curr_idx = 0
                 self.ep_loss = 0
@@ -207,13 +228,21 @@ class Averaging(ParaModel):
         else:
             word_embs = self.embedding(idxs)
 
+        bs, max_len, _ = word_embs.shape
+        mask = torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
+        s = (word_embs * self.attn).sum(dim=-1) / self.args.temperature
+        s[~mask] = -10000
+        a = F.softmax(s, dim=-1)
+        assert self.pool == "mean"
+        word_embs = (a.unsqueeze(dim=1) @ word_embs).squeeze(dim=1)
+
         if self.dropout > 0:
             F.dropout(word_embs, training=self.training)
 
-        if self.pool == "max":
-            word_embs = utils.max_pool(word_embs, lengths, self.args.gpu)
-        elif self.pool == "mean":
-            word_embs = utils.mean_pool(word_embs, lengths, self.args.gpu)
+        # if self.pool == "max":
+        #     word_embs = utils.max_pool(word_embs, lengths, self.args.gpu)
+        # elif self.pool == "mean":
+        #     word_embs = utils.mean_pool(word_embs, lengths, self.args.gpu)
 
         return word_embs
 

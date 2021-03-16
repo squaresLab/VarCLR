@@ -1,9 +1,30 @@
+import io
 import numpy as np
 import torch
 import random
 from collections import Counter
 
 unk_string = "UUUNKKK"
+
+def get_data(params):
+    examples = []
+
+    finished = set([]) #check for duplicates
+    with io.open(params.data_file, 'r', encoding='utf-8') as f:
+        for i in f:
+            if i in finished:
+                continue
+            else:
+                finished.add(i)
+
+            i = i.split('\t')
+            if len(i[0].strip()) == 0 or len(i[1].strip()) == 0:
+                continue
+
+            e = (Example(i[0]), Example(i[1]))
+            examples.append(e)
+
+    return examples
 
 def get_ngrams(examples, share_vocab, max_len=200000, n=3):
     def update_counter(counter, sentence):
