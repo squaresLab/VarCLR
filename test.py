@@ -20,25 +20,37 @@ if __name__ == "__main__":
     parser.add_argument("--sp-model", help="SP model to load for evaluation")
     parser.add_argument("--csv", help="idbench test file to save results")
     parser.add_argument("--name", help="method name")
+    parser.add_argument("--ngrams", type=int, default=0)
     args = parser.parse_args()
     model, epoch = load_model(None, args)
     # model.to("cpu")
     # model.gpu = False
     print("Loaded model at epoch {0} and resuming training.".format(epoch))
-    sp = spm.SentencePieceProcessor()
-    sp.Load(args.sp_model)
+    # use sp instead of ngram
+    if not args.ngrams:
+        sp = spm.SentencePieceProcessor()
+        sp.Load(args.sp_model)
 
     for csv in args.csv.split(","):
         pairs = pd.read_csv(csv, dtype=object)
         sim = []
         for var1, var2 in zip(pairs["id1"].tolist(), pairs["id2"].tolist()):
-            var1_pieces = " ".join(sp.encode_as_pieces(canonicalize(var1)))
-            var2_pieces = " ".join(sp.encode_as_pieces(canonicalize(var2)))
+            if not args.ngrams:
+                # use sp
+                var1_pieces = " ".join(sp.encode_as_pieces(canonicalize(var1)))
+                var2_pieces = " ".join(sp.encode_as_pieces(canonicalize(var2)))
+            else:
+                var1_pieces = canonicalize(var1)
+                var2_pieces = canonicalize(var2)
             print(var1_pieces, var2_pieces)
             wp1 = Example(var1_pieces)
             wp2 = Example(var2_pieces)
-            wp1.populate_embeddings(model.vocab, model.zero_unk, False)
-            wp2.populate_embeddings(model.vocab, model.zero_unk, False)
+            if not args.ngrams:
+                wp1.populate_embeddings(model.vocab, model.zero_unk, 0)
+                wp2.populate_embeddings(model.vocab, model.zero_unk, 0)
+            else:
+                wp1.populate_embeddings(model.vocab, model.zero_unk, args.ngrams)
+                wp2.populate_embeddings(model.vocab, model.zero_unk, args.ngrams)
             wx1, wl1 = model.torchify_batch([wp1])
             wx2, wl2 = model.torchify_batch([wp2])
             scores = model.scoring_function(wx1, wl1, wx2, wl2, fr0=False, fr1=False)
