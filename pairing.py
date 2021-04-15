@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from utils import Batch
 
 def get_pairs_batch(model, g1, g1_lengths, g2, g2_lengths):
@@ -14,26 +15,42 @@ def get_pairs_batch(model, g1, g1_lengths, g2, g2_lengths):
         v_g2 = []
         for i in range(len(g2)):
             v_g2.append(model.encode(g2[i], g2_lengths[i], fr=1))
-        v_g1 = torch.cat(v_g1)
-        v_g2 = torch.cat(v_g2)
+        def pad(v_list):
+            max_l = max([tup[0].shape[1] for tup in v_list])
+            return [
+                (
+                    torch.nn.functional.pad(v[0], (0, 0, 0, max_l - v[0].shape[1]), "constant", 0),
+                    torch.nn.functional.pad(v[1], (0, max_l - v[0].shape[1]), "constant", 0),
+                )
+                for v in v_list
+            ]
+        v_g1 = pad(v_g1)
+        v_g2 = pad(v_g2)
+        v_g1 = torch.cat([tup[0] for tup in v_g1]), torch.cat([tup[1] for tup in v_g1])
+        v_g2 = torch.cat([tup[0] for tup in v_g2]), torch.cat([tup[1] for tup in v_g2])
 
-        n1 = v_g1.size()[0]
+        n1 = v_g1[0].size()[0]
         p1 = torch.zeros((n1, torch.max(all_g2_lengths).item())).long()
         p1_lengths = torch.zeros(all_g2_lengths.size()).long()
 
-        n2 = v_g2.size()[0]
+        n2 = v_g2[0].size()[0]
         p2 = torch.zeros((n2, torch.max(all_g1_lengths).item())).long()
         p2_lengths = torch.zeros(all_g1_lengths.size()).long()
+        assert n1 == n2
 
         if model.gpu:
             p1 = p1.cuda()
             p1_lengths = p1_lengths.cuda()
         for i in range(n1):
-            v = v_g1[i].expand(n1, v_g1.size()[1])
-            scores = model.cosine(v, v_g2)
-            scores[i] = -1
-            _, idx = torch.max(scores, 0)
-            idx = idx.item()
+            if np.random.random() < 0.5:
+                v = v_g1[0][i].expand(n1, -1, -1), v_g1[1][i].expand(n1, -1)
+                scores = model.cosine(v, v_g2)
+                scores[i] = -1
+                _, idx = torch.max(scores, 0)
+                idx = idx.item()
+            else:
+                while (idx:= np.random.choice(n1)) == i:
+                    pass
             p1_lengths[i] = all_g2_lengths[idx]
             g2_batch_idx = idx // model.batchsize
             g2_idx = idx % model.batchsize
@@ -43,11 +60,15 @@ def get_pairs_batch(model, g1, g1_lengths, g2, g2_lengths):
             p2 = p2.cuda()
             p2_lengths = p2_lengths.cuda()
         for i in range(n2):
-            v = v_g2[i].expand(n2, v_g2.size()[1])
-            scores = model.cosine(v, v_g1)
-            scores[i] = -1
-            _, idx = torch.max(scores, 0)
-            idx = idx.item()
+            if np.random.random() < 0.5:
+                v = v_g2[0][i].expand(n2, -1, -1), v_g2[1][i].expand(n2, -1)
+                scores = model.cosine(v, v_g1)
+                scores[i] = -1
+                _, idx = torch.max(scores, 0)
+                idx = idx.item()
+            else:
+                while (idx:= np.random.choice(n1)) == i:
+                    pass
             p2_lengths[i] = all_g1_lengths[idx]
             p2[i, 0:g1_lengths[idx // model.batchsize][idx % model.batchsize]] = \
                 g1[idx // model.batchsize][idx % model.batchsize][0:all_g1_lengths[idx]]

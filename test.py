@@ -23,6 +23,7 @@ if __name__ == "__main__":
     parser.add_argument("--ngrams", type=int, default=0)
     args = parser.parse_args()
     model, epoch = load_model(None, args)
+    model.eval()
     # model.to("cpu")
     # model.gpu = False
     print("Loaded model at epoch {0} and resuming training.".format(epoch))

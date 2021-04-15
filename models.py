@@ -37,6 +37,25 @@ def load_model(data, args):
     return model, epoch
 
 class ParaModel(nn.Module):
+    def cosine(self, tup1, tup2):
+        v1, mask1 = tup1
+        v2, mask2 = tup2
+        # match matrix similar to attention score: match_ij = cosine(v1_i, v2_j)
+        # Shape: B x L1 x L2
+        match = v1 @ v2.transpose(1, 2)
+        # B x L1 x 1 @ B x 1 x L2 => B x L1 x L2
+        match_mask = mask1.unsqueeze(dim=2) @ mask2.unsqueeze(dim=1)
+        match[~match_mask.bool()] = -10000
+        s1 = -torch.max(match, dim=2)[0] / 100
+        s1[~mask1.bool()] = -10000
+        attn1 = F.softmax(s1, dim=1)
+        v1 = (v1 * attn1.unsqueeze(dim=2)).sum(dim=1)
+        s2 = -torch.max(match, dim=1)[0] / 100
+        s2[~mask2.bool()] = -10000
+        attn2 = F.softmax(s2, dim=1)
+        v2 = (v2 * attn2.unsqueeze(dim=2)).sum(dim=1)
+        return F.cosine_similarity(v1, v2)
+
     def __init__(self, data, args, vocab, vocab_fr):
         super(ParaModel, self).__init__()
 
@@ -65,7 +84,7 @@ class ParaModel(nn.Module):
         self.increment = False
 
         self.sim_loss = nn.MarginRankingLoss(margin=self.delta)
-        self.cosine = CosineSimilarity()
+        # self.cosine = CosineSimilarity()
 
         if hasattr(args, "load_emb") and args.load_emb:
             assert self.vocab_fr is None
@@ -174,6 +193,9 @@ class ParaModel(nn.Module):
                     self.optimizer.zero_grad()
                     cost.backward()
                     torch.nn.utils.clip_grad_norm_(self.parameters, self.args.grad_clip)
+                    # print(self.kernel_output.weight.grad, self.kernel_output.weight.grad.shape)
+                    # print(self.mus.grad, self.mus.grad.shape)
+                    # print(self.sigmas.grad, self.sigmas.grad.shape)
                     self.optimizer.step()
 
                 self.eval()
@@ -229,12 +251,13 @@ class Averaging(ParaModel):
             word_embs = self.embedding(idxs)
 
         bs, max_len, _ = word_embs.shape
-        mask = torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
-        s = (word_embs * self.attn).sum(dim=-1) / self.args.temperature
-        s[~mask] = -10000
-        a = F.softmax(s, dim=-1)
-        assert self.pool == "mean"
-        word_embs = (a.unsqueeze(dim=1) @ word_embs).squeeze(dim=1)
+        mask = (torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)).float()
+        # s = (word_embs * self.attn).sum(dim=-1) / self.args.temperature
+        # s[~mask] = -10000
+        # a = F.softmax(s, dim=-1)
+        # assert self.pool == "mean"
+        # word_embs = (a.unsqueeze(dim=1) @ word_embs).squeeze(dim=1)
+        # print(a)
 
         if self.dropout > 0:
             F.dropout(word_embs, training=self.training)
@@ -244,7 +267,7 @@ class Averaging(ParaModel):
         # elif self.pool == "mean":
         #     word_embs = utils.mean_pool(word_embs, lengths, self.args.gpu)
 
-        return word_embs
+        return word_embs, mask
 
 class LSTM(ParaModel):
     def __init__(self, data, args, vocab, vocab_fr):
@@ -298,11 +321,13 @@ class LSTM(ParaModel):
         _, _indices = torch.sort(indices, 0)
         all_hids = unpack(all_hids, batch_first=True)[0][_indices]
 
-        if self.pool == "max":
-            embs = utils.max_pool(all_hids, lengths, self.gpu)
-        elif self.pool == "mean":
-            embs = utils.mean_pool(all_hids, lengths, self.gpu)
-        return embs
+        # if self.pool == "max":
+        #     embs = utils.max_pool(all_hids, lengths, self.gpu)
+        # elif self.pool == "mean":
+        #     embs = utils.mean_pool(all_hids, lengths, self.gpu)
+        bs, max_len, _ = all_hids.shape
+        mask = (torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)).float()
+        return all_hids, mask
 
     def forward(self, curr_batch):
         g_idxs1 = curr_batch.g1
