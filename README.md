@@ -23,12 +23,4 @@ If you use our code, models, or data for your work please cite:
 
 To train sp-average models in language xx on GPU, choices are es, ar, or tr:
 
-    python main.py --data-file acl19-simple/en-xx.os.1m.tok.20k.txt --model avg --dim 300 --epochs 10 --share-vocab 1 --dropout 0.3 --sp-model acl19-simple/en-xx.os.1m.tok.sp.20k.model
-
-To train trigram-average models in language xx on GPU:
-
-    python main.py --data-file acl19-simple/en-xx.os.1m.tok.txt --model avg --dim 300 --epochs 10 --ngrams 3 --share-vocab 1 --dropout 0.3
-
-To train the bidirectional LSTM models in language xx on GPU:
-
-    python main.py --data-file acl19-simple/en-xx.os.1m.tok.20k.txt --model lstm --dim 300 --epochs 10 --dropout 0.3 --scramble-rate 0.3 --share-vocab 1 --share-encoder 1 --sp-model acl19-simple/en-xx.os.1m.tok.sp.20k.model
+    python main.py --train-data-file acl19-simple/en-es.os.1m.tok.20k.txt --test-data-file STS/STS17-test/STS.input.track5.en-en.txt --sp-model acl19-simple/en-es.os.1m.tok.sp.20k.model --vocab-path acl19-simple/en-es.os.1m.tok.sp.20k.vocab --name en-es

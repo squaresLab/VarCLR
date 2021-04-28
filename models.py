@@ -1,446 +1,209 @@
-from re import S
-from numpy.ma import count
+import time
+from collections import deque
+from typing import Any, List
+
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import numpy as np
-import pandas as pd
-import time
 import torch.nn.functional as F
-import sentencepiece as spm
-import pairing
-import utils
-from tqdm import tqdm
-from torch.nn.modules.distance import CosineSimilarity
-from torch.nn.utils.rnn import pad_packed_sequence as unpack
-from torch.nn.utils.rnn import pack_padded_sequence as pack
-from evaluate import evaluate
+from scipy.stats import pearsonr, spearmanr
 from torch import optim
+from torch.nn.utils.rnn import pack_padded_sequence as pack
+from torch.nn.utils.rnn import pad_packed_sequence as unpack
+
 from compute_correlations import test_correlation
 
-def load_model(data, args):
-    model = torch.load(args.load_file)
 
-    state_dict = model['state_dict']
-    model_args = model['args']
-    vocab = model['vocab']
-    vocab_fr = model['vocab_fr']
-    optimizer = model['optimizer']
-    epoch = model['epoch']
-    if hasattr(args, "outfile"):
-        model_args.outfile = args.outfile
-    if hasattr(args, "epochs"):
-        model_args.epochs = args.epochs
+class CosineSimMarginLoss(nn.Module):
+    def __init__(self, delta):
+        super().__init__()
+        self.delta = delta
+        self.loss = nn.MarginRankingLoss(margin=self.delta, reduction="none")
 
-    if model_args.model == "avg":
-        model = Averaging(data, model_args, vocab, vocab_fr)
-    elif model_args.model == "lstm":
-        model = LSTM(data, model_args, vocab, vocab_fr)
+    def forward(self, x, y, x_neg, y_neg):
+        pos = F.cosine_similarity(x, y)
+        neg1 = F.cosine_similarity(x, x_neg)
+        neg2 = F.cosine_similarity(y, y_neg)
+        ones = torch.ones(pos.shape[0], device=x.device)
+        loss = self.loss(pos, neg1, ones) + self.loss(pos, neg2, ones)
+        return loss
 
-    model.load_state_dict(state_dict)
-    model.optimizer.load_state_dict(optimizer)
 
-    return model, epoch
-
-class ParaModel(nn.Module):
-
-    def __init__(self, data, args, vocab, vocab_fr):
+class ParaModel(pl.LightningModule):
+    def __init__(self, args):
         super(ParaModel, self).__init__()
 
-        self.data = data
         self.args = args
-        self.gpu = args.gpu
 
-        self.vocab = vocab
-        self.vocab_fr = vocab_fr
-        self.ngrams = args.ngrams
-
-        self.delta = args.delta
-        self.pool = args.pool
-
-        self.dropout = args.dropout
-        self.share_encoder = args.share_encoder
-        self.share_vocab = args.share_vocab
+        # Vocab
         self.scramble_rate = args.scramble_rate
         self.zero_unk = args.zero_unk
 
-        self.batchsize = args.batchsize
-        self.max_megabatch_size = args.megabatch_size
-        self.curr_megabatch_size = 1
-        self.megabatch = []
-        self.megabatch_anneal = args.megabatch_anneal
+        # Model
+        self.dropout = args.dropout
+        self.loss = CosineSimMarginLoss(args.delta)
+        args.vocab_size = len(torch.load(args.vocab_path))
+        self.encoder = Encoder.build(args)
+
+        # Megabatch & hard negative mining
         self.increment = False
+        self.curr_megabatch_size = 1
+        self.max_megabatch_size = args.megabatch_size
+        self.megabatch_anneal = args.megabatch_anneal
+        self.megabatch = deque()
 
-        self.sim_loss = nn.MarginRankingLoss(margin=self.delta)
-        # self.cosine = CosineSimilarity()
+    def score(self, batch):
+        (x_idxs, x_lengths), (y_idxs, y_lengths) = batch
+        x, _ = self.encoder(x_idxs, x_lengths)
+        y, _ = self.encoder(y_idxs, y_lengths)
+        return F.cosine_similarity(x, y)
 
-        if hasattr(args, "load_emb") and args.load_emb:
-            assert self.vocab_fr is None
-            model = torch.load(args.load_emb)
-            state_dict = model['state_dict']
-            model_args = model['args']
-            assert model_args.model == "avg"
-            self.vocab = model['vocab']
-            self.vocab_fr = model['vocab_fr']
-            self.embedding = nn.Embedding(len(self.vocab), self.args.dim)
-            self.embedding.load_state_dict({"weight": state_dict["embedding.weight"]})
-            del model
-        else:
-            self.embedding = nn.Embedding(len(self.vocab), self.args.dim)
-        if self.vocab_fr is not None:
-            self.embedding_fr = nn.Embedding(len(self.vocab_fr), self.args.dim)
-        # self.attn = nn.Parameter(torch.zeros(self.args.dim))
-        # nn.init.normal_(self.attn)
-        # self.embedding.requires_grad_(False)
+    def forward(self, batch):
+        # (x, y) are positive pairs
+        (x_idxs, x_lengths), (y_idxs, y_lengths) = batch
+        x, _ = self.encoder(x_idxs, x_lengths)
+        y, _ = self.encoder(y_idxs, y_lengths)
 
-        d = self.args.dim
-        self.attn_forward = nn.Sequential(
-            nn.Linear(d, d),
-            nn.GELU(),
-            # nn.Dropout(p=0.3),
-            nn.Dropout(p=0.1),
-            nn.Linear(d, d),
-            nn.LayerNorm(d)
-        )
-        self.compare_forward = nn.Sequential(
-            nn.Linear(d * 2, d),
-            nn.GELU(),
-            nn.Dropout(p=0.1),
-            nn.Linear(d, d),
-            nn.LayerNorm(d)
-        )
-        self.aggregate_forward = nn.Sequential(
-            nn.Linear(d * 2, d),
-            nn.GELU(),
-            nn.Dropout(p=0.1),
-            nn.Linear(d, d),
-            nn.GELU(),
-            nn.Dropout(p=0.1),
-            nn.Linear(d, 1),
-            nn.Sigmoid()
-        )
+        # find hard negative paris
+        x_neg_idxs, x_neg_lengths = self.mine_hard(x_idxs, x_lengths)
+        y_neg_idxs, y_neg_lengths = self.mine_hard(y_idxs, y_lengths)
 
-        self.sp = None
-        if args.sp_model:
-            self.sp = spm.SentencePieceProcessor()
-            self.sp.Load(args.sp_model)
+        x_neg, _ = self.encoder(x_neg_idxs, x_neg_lengths)
+        y_neg, _ = self.encoder(y_neg_idxs, y_neg_lengths)
 
-    def save_params(self, epoch):
-        torch.save({'state_dict': self.state_dict(),
-                'vocab': self.vocab,
-                'vocab_fr': self.vocab_fr,
-                'args': self.args,
-                'optimizer': self.optimizer.state_dict(),
-                'epoch': epoch}, "{0}_{1}.pt".format(self.args.outfile, epoch))
+        return self.loss(x, y, x_neg, y_neg)
 
-    def torchify_batch(self, batch):
-        max_len = 0
-        for i in batch:
-            if len(i.embeddings) > max_len:
-                max_len = len(i.embeddings)
+    def mine_hard(self, idxs, lengths):
+        bs = idxs.shape[0]
+        shuf_idx = torch.randperm(bs)
+        return idxs[shuf_idx], lengths[shuf_idx]
 
-        batch_len = len(batch)
-
-        np_sents = np.zeros((batch_len, max_len), dtype='int32')
-        np_lens = np.zeros((batch_len,), dtype='int32')
-
-        for i, ex in enumerate(batch):
-            np_sents[i, :len(ex.embeddings)] = ex.embeddings
-            np_lens[i] = len(ex.embeddings)
-
-        idxs, lengths = torch.from_numpy(np_sents).long(), \
-                               torch.from_numpy(np_lens).float().long()
-
-        if self.gpu:
-            idxs = idxs.cuda()
-            lengths = lengths.cuda()
-    
-        return idxs, lengths
-
-    def loss_function(self, g1, g2, p1, p2):
-        g1g2 = self.cosine(g1, g2)
-        g1p1 = self.cosine(g1, p1)
-        g2p2 = self.cosine(g2, p2)
-
-        ones = torch.ones(g1g2.size()[0])
-        if self.gpu:
-            ones = ones.cuda()
-
-        loss = self.sim_loss(g1g2, g1p1, ones) + self.sim_loss(g1g2, g2p2, ones)
-
+    def training_step(self, batch, batch_idx):
+        loss = self.forward(batch).mean()
+        self.log("loss/train", loss)
         return loss
 
-    def scoring_function(self, g_idxs1, g_lengths1, g_idxs2, g_lengths2, fr0=0, fr1=0):
-        g1 = self.encode(g_idxs1, g_lengths1, fr=fr0)
-        g2 = self.encode(g_idxs2, g_lengths2, fr=fr1)
-        return self.cosine(g1, g2)
-
-    def cosine(self, tup1, tup2):
-        v1, mask1 = tup1
-        v2, mask2 = tup2
-        # match matrix similar to attention score: match_ij = cosine(v1_i, v2_j)
-        # Shape: B x L1 x L2
-        # av1 = self.attn_forward(v1)
-        # av2 = self.attn_forward(v2)
-        # match = av1 @ av2.transpose(1, 2)
-        match = v1 @ v2.transpose(1, 2)
-        # B x L1 x 1 @ B x 1 x L2 => B x L1 x L2
-        match_mask = mask1.unsqueeze(dim=2) @ mask2.unsqueeze(dim=1)
-        match[~match_mask.bool()] = -10000
-
-        # # DecAttn
-        # beta = F.softmax(match, dim=2) @ v2
-        # alpha = F.softmax(match, dim=1).transpose(1, 2) @ v1
-        # v1i = self.compare_forward(torch.cat([v1, beta], dim=2))
-        # v2j = self.compare_forward(torch.cat([v2, alpha], dim=2))
-        # v1i = v1i.sum(dim=1)
-        # v2j = v2j.sum(dim=1)
-        # return F.cosine_similarity(v1i, v2j)
-        # # ret = self.aggregate_forward(torch.cat([v1i, v2j], dim=1))
-        # # return ret.squeeze(dim=1)
-
-        # Bi attention with -Max trick
-        s1 = -torch.max(match, dim=2)[0] / 100
-        s1[~mask1.bool()] = -10000
-        attn1 = F.softmax(s1, dim=1)
-        v1 = (v1 * attn1.unsqueeze(dim=2)).sum(dim=1)
-        s2 = -torch.max(match, dim=1)[0] / 100
-        s2[~mask2.bool()] = -10000
-        attn2 = F.softmax(s2, dim=1)
-        v2 = (v2 * attn2.unsqueeze(dim=2)).sum(dim=1)
-
-        return F.cosine_similarity(v1, v2)
-
-    def train_epochs(self, start_epoch=1):
-        start_time = time.time()
+    def training_epoch_end(self, outputs: List[Any]) -> None:
         self.megabatch = []
-        self.ep_loss = 0
-        self.curr_idx = 0
 
-        self.eval()
-        evaluate(self, self.args)
+    def _unlabeled_eval_step(self, batch, batch_idx):
+        loss = self.forward(batch)
+        return dict(loss=loss.detach().cpu())
 
-        self.train()
-        self.eval_csv(self.args)
+    def _labeled_eval_step(self, batch, batch_idx):
+        *batch, labels = batch
+        scores = self.score(batch)
+        return dict(scores=scores.detach().cpu(), labels=labels.detach().cpu())
 
-        try:
-            for ep in range(start_epoch, self.args.epochs+1):
-                self.args.temperature = max(1, self.args.temperature * 0.5 ** (1 / 2))
-                print("T = ", self.args.temperature)
-                self.mb = utils.get_minibatches_idx(len(self.data), self.args.batchsize, shuffle=True)
-                self.curr_idx = 0
-                self.ep_loss = 0
-                self.megabatch = []
-                cost = 0
-                counter = 0
+    def _shared_eval_step(self, batch, batch_idx):
+        if len(batch) == 3:
+            return self._labeled_eval_step(batch, batch_idx)
+        elif len(batch) == 2:
+            return self._unlabeled_eval_step(batch, batch_idx)
 
-                def tmp():
-                    while True:
-                        yield None
-                tqdm_iter = tqdm(tmp())
-                tqdm_iter_gen = tqdm_iter.__iter__()
-                while (cost is not None):
-                    _ = next(tqdm_iter_gen)
-                    cost = pairing.compute_loss_one_batch(self)
-                    if cost is None:
-                        continue
+    def _unlabeled_epoch_end(self, outputs, prefix):
+        loss = torch.cat([o["loss"] for o in outputs]).mean()
+        self.log(f"loss/{prefix}", loss)
 
-                    if counter % 10 == 0:
-                        tqdm_iter.set_description(f"batch loss = {cost:.3f}")
-                    self.ep_loss += cost.item()
-                    counter += 1
+    def _labeled_epoch_end(self, outputs, prefix):
+        scores = torch.cat([o["scores"] for o in outputs]).tolist()
+        labels = torch.cat([o["labels"] for o in outputs]).tolist()
+        self.log(f"pearsonr/{prefix}", pearsonr(scores, labels)[0])
+        self.log(f"spearmanr/{prefix}", spearmanr(scores, labels)[0])
 
-                    self.optimizer.zero_grad()
-                    cost.backward()
-                    torch.nn.utils.clip_grad_norm_(self.parameters, self.args.grad_clip)
-                    # print(self.kernel_output.weight.grad, self.kernel_output.weight.grad.shape)
-                    # print(self.mus.grad, self.mus.grad.shape)
-                    # print(self.sigmas.grad, self.sigmas.grad.shape)
-                    self.optimizer.step()
-                    if counter % 200 == 0:
-                        self.eval_csv(self.args)
-
-                self.eval()
-                evaluate(self, self.args)
-                self.train()
-
-                if self.args.save_every_epoch:
-                    self.save_params(ep)
-
-                print('Epoch {0}\tCost: '.format(ep), self.ep_loss / counter)
-                self.eval_csv(self.args)
-
-        except KeyboardInterrupt:
-            print("Training Interrupted")
-
-        end_time = time.time()
-        print("Total Time:", (end_time - start_time))
-
-    def eval_csv(self, args):
-        """Evaluate and write results on the IdBench csv files
-        
-        args.small, args.medium, args.large
-        """
-        for csv_fname in [args.small, args.medium, args.large]:
-            pairs = pd.read_csv(csv_fname, dtype=object)
-            sim = []
-            for var1, var2 in zip(pairs["id1"].tolist(), pairs["id2"].tolist()):
-                if self.sp is not None:
-                    var1_pieces = " ".join(self.sp.encode_as_pieces(utils.canonicalize(var1)))
-                    var2_pieces = " ".join(self.sp.encode_as_pieces(utils.canonicalize(var2)))
-                else:
-                    var1_pieces = utils.canonicalize(var1)
-                    var2_pieces = utils.canonicalize(var2)
-                # print(var1_pieces, var2_pieces)
-                wp1 = utils.Example(var1_pieces)
-                wp2 = utils.Example(var2_pieces)
-                if self.sp is not None:
-                    wp1.populate_embeddings(self.vocab, self.zero_unk, 0)
-                    wp2.populate_embeddings(self.vocab, self.zero_unk, 0)
-                else:
-                    wp1.populate_embeddings(self.vocab, self.zero_unk, self.ngrams)
-                    wp2.populate_embeddings(self.vocab, self.zero_unk, self.ngrams)
-                wx1, wl1 = self.torchify_batch([wp1])
-                wx2, wl2 = self.torchify_batch([wp2])
-                scores = self.scoring_function(wx1, wl1, wx2, wl2, fr0=False, fr1=False)
-                # print(scores.item())
-                sim.append(f"{scores.item():.4f}")
-            pairs[self.args.name] = sim
-            pairs.to_csv(csv_fname, index=False)
-
-        test_correlation(args)
-
-class Averaging(ParaModel):
-    def __init__(self, data, args, vocab, vocab_fr):
-        super(Averaging, self).__init__(data, args, vocab, vocab_fr)
-        self.parameters = self.parameters()
-        self.optimizer = optim.Adam(self.parameters, lr=self.args.lr)
-
-        if args.gpu:
-           self.cuda()
-
-        print(self)
-        
-    def forward(self, curr_batch):
-        g_idxs1 = curr_batch.g1
-        g_lengths1 = curr_batch.g1_l
-
-        g_idxs2 = curr_batch.g2
-        g_lengths2 = curr_batch.g2_l
-
-        p_idxs1 = curr_batch.p1
-        p_lengths1 = curr_batch.p1_l
-
-        p_idxs2 = curr_batch.p2
-        p_lengths2 = curr_batch.p2_l
-
-        g1 = self.encode(g_idxs1, g_lengths1)
-        g2 = self.encode(g_idxs2, g_lengths2, fr=1)
-        p1 = self.encode(p_idxs1, p_lengths1, fr=1)
-        p2 = self.encode(p_idxs2, p_lengths2)
-
-        return g1, g2, p1, p2
-
-    def encode(self, idxs, lengths, fr=0):
-        if fr and not self.share_vocab:
-            word_embs = self.embedding_fr(idxs)
+    def _shared_epoch_end(self, outputs, prefix):
+        if "labels" in outputs[0]:
+            self._labeled_epoch_end(outputs, prefix)
         else:
-            word_embs = self.embedding(idxs)
+            self._unlabeled_epoch_end(outputs, prefix)
+
+    def validation_step(self, batch, batch_idx):
+        return self._shared_eval_step(batch, batch_idx)
+
+    def test_step(self, batch, batch_idx):
+        return self._shared_eval_step(batch, batch_idx)
+
+    def validation_epoch_end(self, outputs):
+        self._shared_epoch_end(outputs, "val")
+
+    def test_epoch_end(self, outputs):
+        self._shared_epoch_end(outputs, "test")
+
+    def configure_optimizers(self):
+        return optim.Adam(self.parameters(), lr=self.args.lr)
+
+class Encoder(nn.Module):
+    @staticmethod
+    def build(args):
+        return {"avg": Averaging, "lstm": LSTM,}[
+            args.model
+        ](args)
+
+    def forward(self, idxs, lengths):
+        raise NotImplementedError
+
+
+class Averaging(Encoder):
+    def __init__(self, args):
+        super().__init__()
+        self.embedding = nn.Embedding(args.vocab_size, args.dim)
+        self.dropout = args.dropout
+
+    def forward(self, idxs, lengths):
+        word_embs = self.embedding(idxs)
+        word_embs = F.dropout(word_embs, p=self.dropout, training=self.training)
 
         bs, max_len, _ = word_embs.shape
-        mask = (torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)).float()
-        # s = (word_embs * self.attn).sum(dim=-1) / self.args.temperature
-        # s[~mask] = -10000
-        # a = F.softmax(s, dim=-1)
-        # assert self.pool == "mean"
-        # word_embs = (a.unsqueeze(dim=1) @ word_embs).squeeze(dim=1)
-        # print(a)
+        mask = (
+            torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
+        ).float()
+        word_embs = (word_embs * mask.unsqueeze(dim=2)).sum(dim=1)
+        pooled = word_embs / lengths.unsqueeze(dim=1)
 
-        if self.dropout > 0:
-            F.dropout(word_embs, training=self.training)
+        return pooled, (word_embs,)
 
-        # if self.pool == "max":
-        #     word_embs = utils.max_pool(word_embs, lengths, self.args.gpu)
-        # elif self.pool == "mean":
-        #     word_embs = utils.mean_pool(word_embs, lengths, self.args.gpu)
 
-        return word_embs, mask
+class LSTM(Encoder):
+    def __init__(self, args):
+        super(LSTM, self).__init__()
 
-class LSTM(ParaModel):
-    def __init__(self, data, args, vocab, vocab_fr):
-        super(LSTM, self).__init__(data, args, vocab, vocab_fr)
+        self.hidden_dim = args.hidden_dim
+        self.dropout = args.dropout
 
-        self.hidden_dim = self.args.hidden_dim
+        self.e_hidden_init = torch.zeros(2, 1, args.hidden_dim)
+        self.e_cell_init = torch.zeros(2, 1, args.hidden_dim)
 
-        self.e_hidden_init = torch.zeros(2, 1, self.args.hidden_dim)
-        self.e_cell_init = torch.zeros(2, 1, self.args.hidden_dim)
+        self.embedding = nn.Embedding(args.vocab_size, args.dim)
+        self.lstm = nn.LSTM(
+            args.dim,
+            args.hidden_dim,
+            num_layers=1,
+            bidirectional=True,
+            batch_first=True,
+        )
 
-        if self.gpu:
-            self.e_hidden_init = self.e_hidden_init.cuda()
-            self.e_cell_init = self.e_cell_init.cuda()
-
-        self.lstm = nn.LSTM(self.args.dim, self.hidden_dim, num_layers=1, bidirectional=True, batch_first=True)
-
-        if not self.share_encoder:
-            self.lstm_fr = nn.LSTM(self.args.dim, self.hidden_dim, num_layers=1,
-                                       bidirectional=True, batch_first=True)
-
-        self.parameters = self.parameters()
-        self.optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.parameters), self.args.lr)
-
-        if self.gpu:
-           self.cuda()
-
-        print(self)
-
-    def encode(self, inputs, lengths, fr=0):
+    def encode(self, inputs, lengths):
         bsz, max_len = inputs.size()
         e_hidden_init = self.e_hidden_init.expand(2, bsz, self.hidden_dim).contiguous()
         e_cell_init = self.e_cell_init.expand(2, bsz, self.hidden_dim).contiguous()
         lens, indices = torch.sort(lengths, 0, True)
 
-        if fr and not self.share_vocab:
-            in_embs = self.embedding_fr(inputs)
-        else:
-            in_embs = self.embedding(inputs)
+        in_embs = self.embedding(inputs)
+        in_embs = F.dropout(in_embs, p=self.dropout, training=self.training)
 
-        if fr and not self.share_encoder:
-            if self.dropout > 0:
-                F.dropout(in_embs, training=self.training)
-            all_hids, (enc_last_hid, _) = self.lstm_fr(pack(in_embs[indices],
-                                                        lens.tolist(), batch_first=True), (e_hidden_init, e_cell_init))
-        else:
-            if self.dropout > 0:
-                F.dropout(in_embs, training=self.training)
-            all_hids, (enc_last_hid, _) = self.lstm(pack(in_embs[indices],
-                                                         lens.tolist(), batch_first=True), (e_hidden_init, e_cell_init))
+        all_hids, (enc_last_hid, _) = self.lstm(
+            pack(in_embs[indices], lens.tolist(), batch_first=True),
+            (e_hidden_init, e_cell_init),
+        )
 
         _, _indices = torch.sort(indices, 0)
         all_hids = unpack(all_hids, batch_first=True)[0][_indices]
 
-        # if self.pool == "max":
-        #     embs = utils.max_pool(all_hids, lengths, self.gpu)
-        # elif self.pool == "mean":
-        #     embs = utils.mean_pool(all_hids, lengths, self.gpu)
         bs, max_len, _ = all_hids.shape
-        mask = (torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)).float()
-        return all_hids, mask
+        mask = (
+            torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
+        ).float()
+        pooled = (all_hids * mask.unsqueeze(dim=2)).sum(dim=1)
+        pooled = pooled / lengths.unsqueeze(dim=1)
 
-    def forward(self, curr_batch):
-        g_idxs1 = curr_batch.g1
-        g_lengths1 = curr_batch.g1_l
-
-        g_idxs2 = curr_batch.g2
-        g_lengths2 = curr_batch.g2_l
-
-        p_idxs1 = curr_batch.p1
-        p_lengths1 = curr_batch.p1_l
-
-        p_idxs2 = curr_batch.p2
-        p_lengths2 = curr_batch.p2_l
-
-        g1 = self.encode(g_idxs1, g_lengths1)
-        g2 = self.encode(g_idxs2, g_lengths2, fr=1)
-        p1 = self.encode(p_idxs1, p_lengths1, fr=1)
-        p2 = self.encode(p_idxs2, p_lengths2)
-
-        return g1, g2, p1, p2
+        return pooled, (all_hids,)
