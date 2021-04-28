@@ -2,6 +2,7 @@ import io
 import numpy as np
 import torch
 import random
+import re
 from collections import Counter
 
 unk_string = "UUUNKKK"
@@ -199,3 +200,8 @@ class Example(object):
                     self.embeddings.append(wd)
             if len(self.embeddings) == 0:
                 self.embeddings = [words[unk_string]]
+
+def canonicalize(var):
+    var = var.replace("@", "")
+    var = re.sub("([a-z]|^)([A-Z]{1})", r"\1_\2", var).lower().replace("_", " ").strip()
+    return var

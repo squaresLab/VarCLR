@@ -39,6 +39,11 @@ parser.add_argument("--share-vocab", default=1, type=int, help="whether to share
 parser.add_argument("--scramble-rate", default=0, type=float, help="rate of scrambling")
 parser.add_argument("--sp-model", help="SP model to load for evaluation")
 parser.add_argument("--temperature", default=10, type=float)
+parser.add_argument('--small', default="results/small_pair_wise.csv", help="Pairwise scores in small dataset")
+parser.add_argument('--medium', default="results/medium_pair_wise.csv", help="Pairwise scores in medium dataset")
+parser.add_argument('--large', default="results/large_pair_wise.csv", help="Pairwise scores in large dataset")
+parser.add_argument('--combined', help="Add combined embedding", default=False, action='store_true')
+parser.add_argument("--name", default="Ours-FT", help="method name")
 
 args = parser.parse_args()
 
