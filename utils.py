@@ -4,6 +4,7 @@ from typing import Tuple
 
 import sentencepiece as spm
 from sacremoses import MosesTokenizer
+from collections import Counter
 
 unk_string = "UUUNKKK"
 
@@ -61,14 +62,15 @@ class TextPreprocessor:
     def build(data_file, args) -> Tuple["TextPreprocessor", "TextPreprocessor"]:
         if "STS" in data_file:
             if "en-en" in data_file:
+                print(f"Using STS processor for {data_file}")
                 return STSTextPreprocessor("en", args), STSTextPreprocessor("en", args)
             else:
                 raise NotImplementedError
+        elif "csv" in data_file:
+            print(f"Using code processor for {data_file}")
+            return CodePreprocessor(args), CodePreprocessor(args)
         else:
-            return TextPreprocessor(args), TextPreprocessor(args)
-
-    def __init__(self, args) -> None:
-        pass
+            return TextPreprocessor(), TextPreprocessor()
 
     def __call__(self, sentence):
         return sentence
@@ -76,7 +78,6 @@ class TextPreprocessor:
 
 class STSTextPreprocessor(TextPreprocessor):
     def __init__(self, lang, args) -> None:
-        super().__init__(args)
         self.moses = MosesTokenizer(lang=lang)
         self.tokenization = args.tokenization
         if self.tokenization == "sp":
@@ -91,7 +92,83 @@ class STSTextPreprocessor(TextPreprocessor):
         return sent
 
 
-def canonicalize(var):
-    var = var.replace("@", "")
-    var = re.sub("([a-z]|^)([A-Z]{1})", r"\1_\2", var).lower().replace("_", " ").strip()
-    return var
+class CodePreprocessor(TextPreprocessor):
+    def __init__(self, args) -> None:
+        self.tokenization = args.tokenization
+        if self.tokenization == "sp":
+            self.sp = spm.SentencePieceProcessor()
+            self.sp.Load(args.sp_model)
+
+    def __call__(self, var):
+        var = var.replace("@", "")
+        var = (
+            re.sub("([a-z]|^)([A-Z]{1})", r"\1_\2", var)
+            .lower()
+            .replace("_", " ")
+            .strip()
+        )
+        if self.tokenization == "sp":
+            var = " ".join(self.sp.EncodeAsPieces(var))
+        return var
+
+
+class Vocab:
+    @staticmethod
+    def build(examples, args):
+        if args.tokenization == "ngrams":
+            return Vocab.get_ngrams(examples, n=args.ngrams)
+        elif args.tokenization == "sp":
+            return Vocab.get_words(examples)
+        else:
+            raise NotImplementedError
+
+    @staticmethod
+    def get_ngrams(examples, max_len=200000, n=3):
+        def update_counter(counter, sentence):
+            word = " " + sentence.strip() + " "
+            lis = []
+            for j in range(len(word)):
+                idx = j
+                ngram = ""
+                while idx < j + n and idx < len(word):
+                    ngram += word[idx]
+                    idx += 1
+                if not len(ngram) == n:
+                    continue
+                lis.append(ngram)
+            counter.update(lis)
+
+        counter = Counter()
+
+        for i in examples:
+            update_counter(counter, i[0].sentence)
+            update_counter(counter, i[1].sentence)
+
+        counter = sorted(counter.items(), key=lambda x: x[1], reverse=True)[0:max_len]
+
+        vocab = {}
+        for i in counter:
+            vocab[i[0]] = len(vocab)
+
+        vocab[unk_string] = len(vocab)
+        return vocab
+
+    @staticmethod
+    def get_words(examples, max_len=200000):
+        def update_counter(counter, sentence):
+            counter.update(sentence.split())
+
+        counter = Counter()
+
+        for i in examples:
+            update_counter(counter, i[0].sentence)
+            update_counter(counter, i[1].sentence)
+
+        counter = sorted(counter.items(), key=lambda x: x[1], reverse=True)[0:max_len]
+
+        vocab = {}
+        for i in counter:
+            vocab[i[0]] = len(vocab)
+
+        vocab[unk_string] = len(vocab)
+        return vocab

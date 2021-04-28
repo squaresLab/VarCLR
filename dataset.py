@@ -1,7 +1,6 @@
 import io
 import os
 import random
-from collections import Counter
 from typing import List, Optional, Text, Tuple
 
 import numpy as np
@@ -9,70 +8,8 @@ import pytorch_lightning as pl
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset, random_split
-from utils import TextPreprocessor, Example, unk_string
+from utils import TextPreprocessor, Example, Vocab
 
-
-class Vocab:
-
-    @staticmethod
-    def build(examples, args):
-        if args.tokenization == "ngrams":
-            return Vocab.get_ngrams(examples, n=args.ngrams)
-        elif args.tokenization == "sp":
-            return Vocab.get_words(examples)
-        else:
-            raise NotImplementedError
-
-    @staticmethod
-    def get_ngrams(examples, max_len=200000, n=3):
-        def update_counter(counter, sentence):
-            word = " " + sentence.strip() + " "
-            lis = []
-            for j in range(len(word)):
-                idx = j
-                ngram = ""
-                while idx < j + n and idx < len(word):
-                    ngram += word[idx]
-                    idx += 1
-                if not len(ngram) == n:
-                    continue
-                lis.append(ngram)
-            counter.update(lis)
-
-        counter = Counter()
-
-        for i in examples:
-            update_counter(counter, i[0].sentence)
-            update_counter(counter, i[1].sentence)
-
-        counter = sorted(counter.items(), key=lambda x: x[1], reverse=True)[0:max_len]
-
-        vocab = {}
-        for i in counter:
-            vocab[i[0]] = len(vocab)
-
-        vocab[unk_string] = len(vocab)
-        return vocab
-
-    @staticmethod
-    def get_words(examples, max_len=200000):
-        def update_counter(counter, sentence):
-            counter.update(sentence.split())
-
-        counter = Counter()
-
-        for i in examples:
-            update_counter(counter, i[0].sentence)
-            update_counter(counter, i[1].sentence)
-
-        counter = sorted(counter.items(), key=lambda x: x[1], reverse=True)[0:max_len]
-
-        vocab = {}
-        for i in counter:
-            vocab[i[0]] = len(vocab)
-
-        vocab[unk_string] = len(vocab)
-        return vocab
 
 class ParaDataset(Dataset):
     def __init__(self, data_file: str, args, training=True) -> None:
@@ -115,14 +52,18 @@ class ParaDataset(Dataset):
     def read_examples(self):
         examples = []
         finished = set([])  # check for duplicates
+        spliter = "," if "csv" in self.data_file else "\t"
         with io.open(self.data_file, "r", encoding="utf-8") as f:
-            for i in f:
+            for idx, i in enumerate(f):
+                if "csv" in self.data_file and idx == 0:
+                    # skip the first line in IdBench csv
+                    continue
                 if i in finished:
                     continue
                 else:
                     finished.add(i)
 
-                i = i.split("\t")
+                i = i.split(spliter)
                 if len(i[0].strip()) == 0 or len(i[1].strip()) == 0:
                     continue
 
@@ -132,6 +73,8 @@ class ParaDataset(Dataset):
                 if self.training:
                     e = (Example(i[0]), Example(i[1]))
                 else:
+                    if np.isnan(float(i[2])):
+                        continue
                     e = (Example(i[0]), Example(i[1]), float(i[2]))
                 examples.append(e)
         return examples
@@ -155,15 +98,15 @@ class ParaDataset(Dataset):
             return ret
 
 class ParaDataModule(pl.LightningDataModule):
-    def __init__(self, train_data_file: str, test_data_file, args):
+    def __init__(self, train_data_file: str, test_data_files, args):
         super().__init__()
         self.train_data_file = train_data_file
-        self.test_data_file = test_data_file
+        self.test_data_files = test_data_files.split(",")
         self.args = args
 
     def prepare_data(self):
         assert os.path.exists(self.train_data_file)
-        assert os.path.exists(self.test_data_file)
+        assert all(os.path.exists(test) for test in self.test_data_files)
 
     def setup(self, stage=None):
 
@@ -175,11 +118,14 @@ class ParaDataModule(pl.LightningDataModule):
             # )
             # self.valid.dataset.training = False
             # HACK: Wieting et al. uses SST test set for validation
-            self.valid = ParaDataset(self.test_data_file, self.args, training=False)
+            self.valid = ParaDataset(self.test_data_files[0], self.args, training=False)
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.test = ParaDataset(self.test_data_file, self.args, training=False)
+            self.tests = [
+                ParaDataset(test_data_file, self.args, training=False)
+                for test_data_file in self.test_data_files
+            ]
             # TODO: idbench
 
     def train_dataloader(self):
@@ -199,9 +145,12 @@ class ParaDataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self):
-        return DataLoader(
-            self.test,
-            batch_size=self.args.batch_size,
-            num_workers=self.args.num_workers,
-            collate_fn=ParaDataset.collate_fn,
-        )
+        return [
+            DataLoader(
+                test,
+                batch_size=self.args.batch_size,
+                num_workers=self.args.num_workers,
+                collate_fn=ParaDataset.collate_fn,
+            )
+            for test in self.tests
+        ]

@@ -1,9 +1,12 @@
 import time
 from collections import deque
 from typing import Any, List
+from numpy.ma import make_mask
 
 import pytorch_lightning as pl
+from pytorch_lightning.trainer import data_loading
 import torch
+from torch._C import import_ir_module
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.stats import pearsonr, spearmanr
@@ -109,7 +112,7 @@ class ParaModel(pl.LightningModule):
         scores = torch.cat([o["scores"] for o in outputs]).tolist()
         labels = torch.cat([o["labels"] for o in outputs]).tolist()
         self.log(f"pearsonr/{prefix}", pearsonr(scores, labels)[0])
-        self.log(f"spearmanr/{prefix}", spearmanr(scores, labels)[0])
+        self.log(f"spearmanr/{prefix}", spearmanr(scores, labels).correlation)
 
     def _shared_epoch_end(self, outputs, prefix):
         if "labels" in outputs[0]:
@@ -120,14 +123,18 @@ class ParaModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         return self._shared_eval_step(batch, batch_idx)
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
         return self._shared_eval_step(batch, batch_idx)
 
     def validation_epoch_end(self, outputs):
         self._shared_epoch_end(outputs, "val")
 
     def test_epoch_end(self, outputs):
-        self._shared_epoch_end(outputs, "test")
+        if isinstance(outputs[0], list):
+            for idx, subset_outputs in enumerate(outputs):
+                self._shared_epoch_end(subset_outputs, f"test_{idx}")
+        else:
+            self._shared_epoch_end(outputs, "test")
 
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=self.args.lr)
@@ -182,7 +189,7 @@ class LSTM(Encoder):
             batch_first=True,
         )
 
-    def encode(self, inputs, lengths):
+    def forward(self, inputs, lengths):
         bsz, max_len = inputs.size()
         e_hidden_init = self.e_hidden_init.expand(2, bsz, self.hidden_dim).contiguous()
         e_cell_init = self.e_cell_init.expand(2, bsz, self.hidden_dim).contiguous()

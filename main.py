@@ -18,7 +18,7 @@ def add_options(parser):
     # fmt: off
     # Dataset
     parser.add_argument("--train-data-file", required=True, help="training data")
-    parser.add_argument("--test-data-file", required=True, help="test data")
+    parser.add_argument("--test-data-files", required=True, help="test data")
     parser.add_argument("--zero-unk", default=1, type=int, help="whether to ignore unknown tokens")
     parser.add_argument("--ngrams", default=3, type=int, help="whether to use character n-grams")
     parser.add_argument("--tokenization", default="sp", type=str, choices=["sp", "ngram"], help="which tokenization to use")
@@ -40,7 +40,7 @@ def add_options(parser):
     parser.add_argument("--gpu", default=1, type=int, help="whether to train on gpu")
     parser.add_argument("--grad-clip", default=5., type=float, help='clip threshold of gradients')
     parser.add_argument("--epochs", default=30, type=int, help="number of epochs to train")
-    parser.add_argument("--patience", default=3, type=int, help="early stopping patience")
+    parser.add_argument("--patience", default=5, type=int, help="early stopping patience")
     parser.add_argument("--lr", default=0.001, type=float, help="learning rate")
     parser.add_argument("--dropout", default=0, type=float, help="dropout rate")
     parser.add_argument("--megabatch-size", default=60, type=int, help="number of batches in megabatch")
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     add_options(parser)
     args = parser.parse_args()
 
-    dm = ParaDataModule(args.train_data_file, args.test_data_file, args)
+    dm = ParaDataModule(args.train_data_file, args.test_data_files, args)
     if not os.path.exists(args.vocab_path):
         dm.setup()
 
@@ -85,11 +85,11 @@ if __name__ == "__main__":
         auto_select_gpus=True,
         gradient_clip_val=1,
         # callbacks=[EarlyStopping(monitor="loss/val", mode="min", patience=args.patience)],
+        callbacks=[EarlyStopping(monitor="spearmanr/val", mode="max", patience=args.patience)],
         progress_bar_refresh_rate=10,
         resume_from_checkpoint=args.load_file,
     )
 
-    if args.test:
-        trainer.test(model, datamodule=dm)
-    else:
+    if not args.test:
         trainer.fit(model, datamodule=dm)
+    trainer.test(model, datamodule=dm)
