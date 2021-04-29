@@ -1,6 +1,5 @@
 import io
 import os
-import random
 from typing import List, Optional, Text, Tuple
 
 import numpy as np
@@ -8,7 +7,8 @@ import pytorch_lightning as pl
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset, random_split
-from utils import TextPreprocessor, Example, Vocab
+
+from utils import Example, TextPreprocessor, Vocab
 
 
 class ParaDataset(Dataset):
@@ -97,6 +97,7 @@ class ParaDataset(Dataset):
         else:
             return ret
 
+
 class ParaDataModule(pl.LightningDataModule):
     def __init__(self, train_data_file: str, test_data_files, args):
         super().__init__()
@@ -126,7 +127,6 @@ class ParaDataModule(pl.LightningDataModule):
                 ParaDataset(test_data_file, self.args, training=False)
                 for test_data_file in self.test_data_files
             ]
-            # TODO: idbench
 
     def train_dataloader(self):
         return DataLoader(

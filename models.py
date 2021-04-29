@@ -1,20 +1,15 @@
-import time
+import os
 from collections import deque
 from typing import Any, List
-from numpy.ma import make_mask
 
 import pytorch_lightning as pl
-from pytorch_lightning.trainer import data_loading
 import torch
-from torch._C import import_ir_module
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.stats import pearsonr, spearmanr
 from torch import optim
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
-
-from compute_correlations import test_correlation
 
 
 class CosineSimMarginLoss(nn.Module):
@@ -32,6 +27,26 @@ class CosineSimMarginLoss(nn.Module):
         return loss
 
 
+class NCESoftmaxLoss(nn.Module):
+    """Softmax cross-entropy loss (a.k.a., info-NCE loss in CPC paper)"""
+
+    def __init__(self, nce_t):
+        super(NCESoftmaxLoss, self).__init__()
+        self.loss = nn.CrossEntropyLoss()
+        self.nce_t = nce_t
+
+    def forward(self, x, y, x_neg, y_neg):
+        bsz = x.shape[0]
+        scores = (
+            (x / torch.norm(x, dim=1, keepdim=True))
+            @ (y / torch.norm(y, dim=1, keepdim=True)).t()
+            / self.nce_t
+        )
+        label = torch.arange(bsz, device=x.device)
+        loss = self.loss(scores, label) + self.loss(scores.t(), label)
+        return loss
+
+
 class ParaModel(pl.LightningModule):
     def __init__(self, args):
         super(ParaModel, self).__init__()
@@ -44,7 +59,10 @@ class ParaModel(pl.LightningModule):
 
         # Model
         self.dropout = args.dropout
-        self.loss = CosineSimMarginLoss(args.delta)
+        if args.loss == "margin":
+            self.loss = CosineSimMarginLoss(args.delta)
+        elif args.loss == "nce":
+            self.loss = NCESoftmaxLoss(args.nce_t)
         args.vocab_size = len(torch.load(args.vocab_path))
         self.encoder = Encoder.build(args)
 
@@ -68,8 +86,8 @@ class ParaModel(pl.LightningModule):
         y, _ = self.encoder(y_idxs, y_lengths)
 
         # find hard negative paris
-        x_neg_idxs, x_neg_lengths = self.mine_hard(x_idxs, x_lengths)
-        y_neg_idxs, y_neg_lengths = self.mine_hard(y_idxs, y_lengths)
+        x_neg_idxs, x_neg_lengths = self.mine_hard(y_idxs, y_lengths)
+        y_neg_idxs, y_neg_lengths = self.mine_hard(x_idxs, x_lengths)
 
         x_neg, _ = self.encoder(x_neg_idxs, x_neg_lengths)
         y_neg, _ = self.encoder(y_neg_idxs, y_neg_lengths)
@@ -127,17 +145,27 @@ class ParaModel(pl.LightningModule):
         return self._shared_eval_step(batch, batch_idx)
 
     def validation_epoch_end(self, outputs):
-        self._shared_epoch_end(outputs, "val")
+        self._shared_epoch_end(
+            outputs,
+            f"val_{os.path.basename(self.datamodule.val_dataloader().dataset.data_file)}",
+        )
 
     def test_epoch_end(self, outputs):
         if isinstance(outputs[0], list):
             for idx, subset_outputs in enumerate(outputs):
-                self._shared_epoch_end(subset_outputs, f"test_{idx}")
+                self._shared_epoch_end(
+                    subset_outputs,
+                    f"test_{os.path.basename(self.datamodule.test_dataloader()[idx].dataset.data_file)}",
+                )
         else:
-            self._shared_epoch_end(outputs, "test")
+            self._shared_epoch_end(
+                outputs,
+                f"test_{os.path.basename(self.datamodule.test_dataloader().dataset.data_file)}",
+            )
 
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=self.args.lr)
+
 
 class Encoder(nn.Module):
     @staticmethod
@@ -177,8 +205,8 @@ class LSTM(Encoder):
         self.hidden_dim = args.hidden_dim
         self.dropout = args.dropout
 
-        self.e_hidden_init = torch.zeros(2, 1, args.hidden_dim)
-        self.e_cell_init = torch.zeros(2, 1, args.hidden_dim)
+        self.register_buffer("e_hidden_init", torch.zeros(2, 1, args.hidden_dim))
+        self.register_buffer("e_cell_init", torch.zeros(2, 1, args.hidden_dim))
 
         self.embedding = nn.Embedding(args.vocab_size, args.dim)
         self.lstm = nn.LSTM(

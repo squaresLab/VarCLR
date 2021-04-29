@@ -34,13 +34,15 @@ def add_options(parser):
     parser.add_argument("--hidden-dim", default=150, type=int, help="hidden dim size of LSTM")
     parser.add_argument("--delta", default=0.4, type=float, help="margin")
     parser.add_argument("--share-encoder", default=1, type=int, help="whether to share the encoder (LSTM only)")
+    parser.add_argument("--loss", default="margin", type=str, choices=["margin", "nce"], help="loss")
+    parser.add_argument("--nce-t", default=0.03, type=float, help="temperature for noise contrastive estimation loss")
 
     # Training
     parser.add_argument("--name", default="Ours-FT", help="method name")
     parser.add_argument("--gpu", default=1, type=int, help="whether to train on gpu")
-    parser.add_argument("--grad-clip", default=5., type=float, help='clip threshold of gradients')
+    parser.add_argument("--grad-clip", default=1., type=float, help='clip threshold of gradients')
     parser.add_argument("--epochs", default=30, type=int, help="number of epochs to train")
-    parser.add_argument("--patience", default=5, type=int, help="early stopping patience")
+    parser.add_argument("--patience", default=10, type=int, help="early stopping patience")
     parser.add_argument("--lr", default=0.001, type=float, help="learning rate")
     parser.add_argument("--dropout", default=0, type=float, help="dropout rate")
     parser.add_argument("--megabatch-size", default=60, type=int, help="number of batches in megabatch")
@@ -74,6 +76,9 @@ if __name__ == "__main__":
         dm.setup()
 
     model = ParaModel(args)
+    if args.load_file is not None:
+        model = model.load_from_checkpoint(args.load_file, args=args)
+    model.datamodule = dm
 
     wandb_logger = WandbLogger(name=args.name, project="idbench", log_model=True)
     wandb_logger.log_hyperparams(args)
@@ -83,11 +88,16 @@ if __name__ == "__main__":
         logger=wandb_logger,
         gpus=args.gpu,
         auto_select_gpus=True,
-        gradient_clip_val=1,
+        gradient_clip_val=args.grad_clip,
         # callbacks=[EarlyStopping(monitor="loss/val", mode="min", patience=args.patience)],
-        callbacks=[EarlyStopping(monitor="spearmanr/val", mode="max", patience=args.patience)],
+        callbacks=[
+            EarlyStopping(
+                monitor=f"pearsonr/val_{os.path.basename(dm.test_data_files[0])}",
+                mode="max",
+                patience=args.patience,
+            )
+        ],
         progress_bar_refresh_rate=10,
-        resume_from_checkpoint=args.load_file,
     )
 
     if not args.test:

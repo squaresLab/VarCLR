@@ -1,10 +1,10 @@
 import random
 import re
+from collections import Counter
 from typing import Tuple
 
 import sentencepiece as spm
 from sacremoses import MosesTokenizer
-from collections import Counter
 
 unk_string = "UUUNKKK"
 
