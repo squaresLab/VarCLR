@@ -5,6 +5,7 @@ from typing import Tuple
 
 import sentencepiece as spm
 from sacremoses import MosesTokenizer
+from transformers import AutoTokenizer
 
 unk_string = "UUUNKKK"
 
@@ -57,23 +58,66 @@ class Example(object):
             self.embeddings = [words[unk_string]]
 
 
+class Tokenizer:
+
+    @staticmethod
+    def build(args):
+        if "sp.20k.model" in args.sp_model:
+            return SPTokenizer(args.sp_model)
+        elif "bert" in args.sp_model:
+            return PretrainedTokenizer(args.sp_model)
+        else:
+            raise NotImplementedError
+    
+    def encode(self, text):
+        raise NotImplementedError
+
+class SPTokenizer(Tokenizer):
+
+    def __init__(self, model_path) -> None:
+        self.sp = spm.SentencePieceProcessor()
+        self.sp.Load(model_path)
+
+    def encode(self, text):
+        return self.sp.EncodeAsPieces(text)
+
+class PretrainedTokenizer(Tokenizer):
+
+    def __init__(self, tokenizer_name) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+
+    def encode(self, text):
+        return list(map(str, self.tokenizer.encode(text, add_special_tokens=False, truncation=True)))
+
 class TextPreprocessor:
     @staticmethod
     def build(data_file, args) -> Tuple["TextPreprocessor", "TextPreprocessor"]:
         if "STS" in data_file:
-            if "en-en" in data_file:
-                print(f"Using STS processor for {data_file}")
-                return STSTextPreprocessor("en", args), STSTextPreprocessor("en", args)
-            else:
-                raise NotImplementedError
-        elif "csv" in data_file:
+            print(f"Using STS processor for {data_file}")
+            return STSTextPreprocessor("en", args), STSTextPreprocessor("en", args)
+        elif "idbench" in data_file:
             print(f"Using code processor for {data_file}")
             return CodePreprocessor(args), CodePreprocessor(args)
+        elif "nli" in data_file:
+            print(f"Using NLI processor for {data_file}")
+            return NLITextPreprocessor(args), NLITextPreprocessor(args)
         else:
             return TextPreprocessor(), TextPreprocessor()
 
     def __call__(self, sentence):
         return sentence
+
+class NLITextPreprocessor(TextPreprocessor):
+    def __init__(self, args) -> None:
+        self.tokenization = args.tokenization
+        if self.tokenization == "sp":
+            self.tokenizer = Tokenizer.build(args)
+
+    def __call__(self, sentence):
+        sent = sentence.lower()
+        if self.tokenization == "sp":
+            sent = " ".join(self.tokenizer.encode(sent))
+        return sent
 
 
 class STSTextPreprocessor(TextPreprocessor):
@@ -81,14 +125,13 @@ class STSTextPreprocessor(TextPreprocessor):
         self.moses = MosesTokenizer(lang=lang)
         self.tokenization = args.tokenization
         if self.tokenization == "sp":
-            self.sp = spm.SentencePieceProcessor()
-            self.sp.Load(args.sp_model)
+            self.tokenizer = Tokenizer.build(args)
 
     def __call__(self, sentence):
         sent = " ".join(self.moses.tokenize(sentence))
         sent = sent.lower()
         if self.tokenization == "sp":
-            sent = " ".join(self.sp.EncodeAsPieces(sent))
+            sent = " ".join(self.tokenizer.encode(sent))
         return sent
 
 
@@ -96,8 +139,7 @@ class CodePreprocessor(TextPreprocessor):
     def __init__(self, args) -> None:
         self.tokenization = args.tokenization
         if self.tokenization == "sp":
-            self.sp = spm.SentencePieceProcessor()
-            self.sp.Load(args.sp_model)
+            self.tokenizer = Tokenizer.build(args)
 
     def __call__(self, var):
         var = var.replace("@", "")
@@ -108,7 +150,7 @@ class CodePreprocessor(TextPreprocessor):
             .strip()
         )
         if self.tokenization == "sp":
-            var = " ".join(self.sp.EncodeAsPieces(var))
+            var = " ".join(self.tokenizer.encode(var))
         return var
 
 

@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 from scipy.stats import pearsonr, spearmanr
 from torch import optim
 from torch.nn.utils.rnn import pack_padded_sequence as pack
@@ -64,14 +65,8 @@ class ParaModel(pl.LightningModule):
         elif args.loss == "nce":
             self.loss = NCESoftmaxLoss(args.nce_t)
         args.vocab_size = len(torch.load(args.vocab_path))
+        args.parentmodel = self
         self.encoder = Encoder.build(args)
-
-        # Megabatch & hard negative mining
-        self.increment = False
-        self.curr_megabatch_size = 1
-        self.max_megabatch_size = args.megabatch_size
-        self.megabatch_anneal = args.megabatch_anneal
-        self.megabatch = deque()
 
     def score(self, batch):
         (x_idxs, x_lengths), (y_idxs, y_lengths) = batch
@@ -103,9 +98,6 @@ class ParaModel(pl.LightningModule):
         loss = self.forward(batch).mean()
         self.log("loss/train", loss)
         return loss
-
-    def training_epoch_end(self, outputs: List[Any]) -> None:
-        self.megabatch = []
 
     def _unlabeled_eval_step(self, batch, batch_idx):
         loss = self.forward(batch)
@@ -170,9 +162,7 @@ class ParaModel(pl.LightningModule):
 class Encoder(nn.Module):
     @staticmethod
     def build(args):
-        return {"avg": Averaging, "lstm": LSTM,}[
-            args.model
-        ](args)
+        return {"avg": Averaging, "lstm": LSTM, "attn": Attn}[args.model](args)
 
     def forward(self, idxs, lengths):
         raise NotImplementedError
@@ -194,6 +184,29 @@ class Averaging(Encoder):
         ).float()
         word_embs = (word_embs * mask.unsqueeze(dim=2)).sum(dim=1)
         pooled = word_embs / lengths.unsqueeze(dim=1)
+
+        return pooled, (word_embs,)
+
+
+class Attn(Encoder):
+    def __init__(self, args):
+        super().__init__()
+        self.embedding = nn.Embedding(args.vocab_size, args.dim)
+        self.dropout = args.dropout
+        self.attn = nn.Parameter(torch.zeros(args.dim))
+        self.args = args
+        nn.init.normal_(self.attn)
+
+    def forward(self, idxs, lengths):
+        word_embs = self.embedding(idxs)
+        word_embs = F.dropout(word_embs, p=self.dropout, training=self.training)
+
+        bs, max_len, _ = word_embs.shape
+        mask = torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
+        scores = (word_embs * self.attn).sum(dim=-1) / 100
+        scores[~mask] = -10000
+        a = F.softmax(scores, dim=-1)
+        pooled = (a.unsqueeze(dim=1) @ word_embs).squeeze(dim=1)
 
         return pooled, (word_embs,)
 
