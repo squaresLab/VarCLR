@@ -72,6 +72,17 @@ if __name__ == "__main__":
     wandb_logger = WandbLogger(name=args.name, project="idbench", log_model=True)
     wandb_logger.log_hyperparams(args)
     args = argparse.Namespace(**wandb_logger.experiment.config)
+    if not args.test and "bert" in args.sp_model:
+        # Load pre-trained word embeddings from bert
+        bert = AutoModel.from_pretrained(args.sp_model)
+        for word, idx in torch.load(args.vocab_path).items():
+            try:
+                model.encoder.embedding.weight.data[
+                    idx
+                ] = bert.embeddings.word_embeddings.weight.data[int(word)]
+            except ValueError:
+                pass
+        del bert
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,

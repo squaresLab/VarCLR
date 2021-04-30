@@ -59,7 +59,6 @@ class Example(object):
 
 
 class Tokenizer:
-
     @staticmethod
     def build(args):
         if "sp.20k.model" in args.sp_model:
@@ -68,12 +67,12 @@ class Tokenizer:
             return PretrainedTokenizer(args.sp_model)
         else:
             raise NotImplementedError
-    
+
     def encode(self, text):
         raise NotImplementedError
 
-class SPTokenizer(Tokenizer):
 
+class SPTokenizer(Tokenizer):
     def __init__(self, model_path) -> None:
         self.sp = spm.SentencePieceProcessor()
         self.sp.Load(model_path)
@@ -81,13 +80,19 @@ class SPTokenizer(Tokenizer):
     def encode(self, text):
         return self.sp.EncodeAsPieces(text)
 
-class PretrainedTokenizer(Tokenizer):
 
+class PretrainedTokenizer(Tokenizer):
     def __init__(self, tokenizer_name) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
     def encode(self, text):
-        return list(map(str, self.tokenizer.encode(text, add_special_tokens=False, truncation=True)))
+        return list(
+            map(
+                str,
+                self.tokenizer.encode(text, add_special_tokens=False, truncation=True),
+            )
+        )
+
 
 class TextPreprocessor:
     @staticmethod
@@ -98,14 +103,17 @@ class TextPreprocessor:
         elif "idbench" in data_file:
             print(f"Using code processor for {data_file}")
             return CodePreprocessor(args), CodePreprocessor(args)
-        elif "nli" in data_file:
+        elif "20k" in data_file:
+            return TextPreprocessor(), TextPreprocessor()
+        elif "nli" in data_file or "cs-cs" in data_file:
             print(f"Using NLI processor for {data_file}")
             return NLITextPreprocessor(args), NLITextPreprocessor(args)
         else:
-            return TextPreprocessor(), TextPreprocessor()
+            raise NotImplementedError
 
     def __call__(self, sentence):
         return sentence
+
 
 class NLITextPreprocessor(TextPreprocessor):
     def __init__(self, args) -> None:
