@@ -6,9 +6,8 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.core import datamodule
-from pytorch_lightning.loggers import WandbLogger, wandb
-from torch.nn.modules import activation
+from pytorch_lightning.loggers import WandbLogger
+from transformers import AutoModel
 
 from dataset import ParaDataModule
 from models import ParaModel
@@ -34,12 +33,14 @@ def add_options(parser):
     parser.add_argument("--loss", default="nce", type=str, choices=["margin", "nce"], help="loss")
     parser.add_argument("--delta", default=0.4, type=float, help="margin size for margin ranking loss")
     parser.add_argument("--nce-t", default=0.05, type=float, help="temperature for noise contrastive estimation loss")
+    parser.add_argument("--scorer", default="cosine", choices=["cosine", "biattn", "decatt"], help="scorer to evaluate similarity")
+    parser.add_argument("--temperature", default=100, type=float, help="temperature for biattn scorer")
 
     # Training
     parser.add_argument("--name", default="Ours-FT", help="method name")
     parser.add_argument("--gpu", default=1, type=int, help="whether to train on gpu")
     parser.add_argument("--grad-clip", default=1., type=float, help='clip threshold of gradients')
-    parser.add_argument("--epochs", default=100, type=int, help="number of epochs to train")
+    parser.add_argument("--epochs", default=300, type=int, help="number of epochs to train")
     parser.add_argument("--patience", default=10, type=int, help="early stopping patience")
     parser.add_argument("--lr", default=0.001, type=float, help="learning rate")
     parser.add_argument("--dropout", default=0, type=float, help="dropout rate")
@@ -65,7 +66,7 @@ if __name__ == "__main__":
 
     model = ParaModel(args)
     if args.load_file is not None:
-        model = model.load_from_checkpoint(args.load_file, args=args)
+        model = model.load_from_checkpoint(args.load_file, args=args, strict=False)
     model.datamodule = dm
 
     wandb_logger = WandbLogger(name=args.name, project="idbench", log_model=True)

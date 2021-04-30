@@ -1,6 +1,4 @@
 import os
-from collections import deque
-from typing import Any, List
 
 import pytorch_lightning as pl
 import torch
@@ -13,17 +11,108 @@ from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
 
 
-class CosineSimMarginLoss(nn.Module):
-    def __init__(self, delta):
+class Scorer(nn.Module):
+    def forward(self, x, y):
+        raise NotImplementedError
+
+
+class CosineScorer(Scorer):
+    def forward(self, x_ret, y_ret):
+        x_pooled, _ = x_ret
+        y_pooled, _ = y_ret
+        return F.cosine_similarity(x_pooled, y_pooled)
+
+
+class BiAttnScorer(Scorer):
+    def __init__(self, temperature: float):
+        super().__init__()
+        self.temperature = temperature
+
+    def forward(self, x_ret, y_ret):
+        _, (v1, mask1) = x_ret
+        _, (v2, mask2) = y_ret
+        # match matrix similar to attention score: match_ij = cosine(v1_i, v2_j)
+        # Shape: B x L1 x L2
+        match = v1 @ v2.transpose(1, 2)
+        # B x L1 x 1 @ B x 1 x L2 => B x L1 x L2
+        match_mask = mask1.unsqueeze(dim=2) @ mask2.unsqueeze(dim=1)
+        match[~match_mask.bool()] = -10000
+        s1 = -torch.max(match, dim=2)[0] / self.temperature
+        s1[~mask1.bool()] = -10000
+        attn1 = F.softmax(s1, dim=1)
+        v1 = (v1 * attn1.unsqueeze(dim=2)).sum(dim=1)
+        s2 = -torch.max(match, dim=1)[0] / self.temperature
+        s2[~mask2.bool()] = -10000
+        attn2 = F.softmax(s2, dim=1)
+        v2 = (v2 * attn2.unsqueeze(dim=2)).sum(dim=1)
+        return F.cosine_similarity(v1, v2)
+
+
+class DecAttScorer(Scorer):
+    def __init__(self, dim, hid) -> None:
+        super().__init__()
+        self.attn_forward = nn.Sequential(
+            nn.Linear(dim, hid),
+            nn.GELU(),
+            nn.Dropout(p=0.1),
+            nn.Linear(hid, dim),
+            nn.LayerNorm(dim),
+        )
+        self.compare_forward = nn.Sequential(
+            nn.Linear(dim * 2, hid),
+            nn.GELU(),
+            nn.Dropout(p=0.1),
+            nn.Linear(hid, dim),
+            nn.LayerNorm(dim),
+        )
+        self.aggregate_forward = nn.Sequential(
+            nn.Linear(hid * 2, hid),
+            nn.GELU(),
+            nn.Dropout(p=0.1),
+            nn.Linear(hid, hid),
+            nn.GELU(),
+            nn.Dropout(p=0.1),
+            nn.Linear(hid, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x_ret, y_ret):
+        _, (v1, mask1) = x_ret
+        _, (v2, mask2) = y_ret
+        # match matrix similar to attention score: match_ij = cosine(v1_i, v2_j)
+        # Shape: B x L1 x L2
+        av1 = self.attn_forward(v1)
+        av2 = self.attn_forward(v2)
+        match = av1 @ av2.transpose(1, 2)
+        match = v1 @ v2.transpose(1, 2)
+        # B x L1 x 1 @ B x 1 x L2 => B x L1 x L2
+        match_mask = mask1.unsqueeze(dim=2) @ mask2.unsqueeze(dim=1)
+        match[~match_mask.bool()] = -10000
+
+        # DecAttn
+        beta = F.softmax(match, dim=2) @ v2
+        alpha = F.softmax(match, dim=1).transpose(1, 2) @ v1
+        v1i = self.compare_forward(torch.cat([v1, beta], dim=2))
+        v2j = self.compare_forward(torch.cat([v2, alpha], dim=2))
+        v1i = v1i.sum(dim=1)
+        v2j = v2j.sum(dim=1)
+        return F.cosine_similarity(v1i, v2j)
+        # # ret = self.aggregate_forward(torch.cat([v1i, v2j], dim=1))
+        # # return ret.squeeze(dim=1)
+
+
+class SimMarginLoss(nn.Module):
+    def __init__(self, delta, scorer):
         super().__init__()
         self.delta = delta
+        self.scorer = scorer
         self.loss = nn.MarginRankingLoss(margin=self.delta, reduction="none")
 
-    def forward(self, x, y, x_neg, y_neg):
-        pos = F.cosine_similarity(x, y)
-        neg1 = F.cosine_similarity(x, x_neg)
-        neg2 = F.cosine_similarity(y, y_neg)
-        ones = torch.ones(pos.shape[0], device=x.device)
+    def forward(self, x_ret, y_ret, x_neg_ret, y_neg_ret):
+        pos = self.scorer(x_ret, y_ret)
+        neg1 = self.scorer(x_ret, x_neg_ret)
+        neg2 = self.scorer(y_ret, y_neg_ret)
+        ones = torch.ones(pos.shape[0], device=x_ret[0].device)
         loss = self.loss(pos, neg1, ones) + self.loss(pos, neg2, ones)
         return loss
 
@@ -36,7 +125,9 @@ class NCESoftmaxLoss(nn.Module):
         self.loss = nn.CrossEntropyLoss()
         self.nce_t = nce_t
 
-    def forward(self, x, y, x_neg, y_neg):
+    def forward(self, x_ret, y_ret, x_neg_ret, y_neg_ret):
+        x, _ = x_ret
+        y, _ = y_ret
         bsz = x.shape[0]
         scores = (
             (x / torch.norm(x, dim=1, keepdim=True))
@@ -60,8 +151,14 @@ class ParaModel(pl.LightningModule):
 
         # Model
         self.dropout = args.dropout
+        if args.scorer == "cosine":
+            self.scorer = CosineScorer()
+        elif args.scorer == "biattn":
+            self.scorer = BiAttnScorer(args.temperature)
+        elif args.scorer == "decatt":
+            self.scorer = DecAttScorer(args.dim, args.hidden_dim)
         if args.loss == "margin":
-            self.loss = CosineSimMarginLoss(args.delta)
+            self.loss = SimMarginLoss(args.delta, self.scorer)
         elif args.loss == "nce":
             self.loss = NCESoftmaxLoss(args.nce_t)
         args.vocab_size = len(torch.load(args.vocab_path))
@@ -70,24 +167,24 @@ class ParaModel(pl.LightningModule):
 
     def score(self, batch):
         (x_idxs, x_lengths), (y_idxs, y_lengths) = batch
-        x, _ = self.encoder(x_idxs, x_lengths)
-        y, _ = self.encoder(y_idxs, y_lengths)
-        return F.cosine_similarity(x, y)
+        x_ret = self.encoder(x_idxs, x_lengths)
+        y_ret = self.encoder(y_idxs, y_lengths)
+        return self.scorer(x_ret, y_ret)
 
     def forward(self, batch):
         # (x, y) are positive pairs
         (x_idxs, x_lengths), (y_idxs, y_lengths) = batch
-        x, _ = self.encoder(x_idxs, x_lengths)
-        y, _ = self.encoder(y_idxs, y_lengths)
+        x_ret = self.encoder(x_idxs, x_lengths)
+        y_ret = self.encoder(y_idxs, y_lengths)
 
         # find hard negative paris
         x_neg_idxs, x_neg_lengths = self.mine_hard(y_idxs, y_lengths)
         y_neg_idxs, y_neg_lengths = self.mine_hard(x_idxs, x_lengths)
 
-        x_neg, _ = self.encoder(x_neg_idxs, x_neg_lengths)
-        y_neg, _ = self.encoder(y_neg_idxs, y_neg_lengths)
+        x_neg_ret = self.encoder(x_neg_idxs, x_neg_lengths)
+        y_neg_ret = self.encoder(y_neg_idxs, y_neg_lengths)
 
-        return self.loss(x, y, x_neg, y_neg)
+        return self.loss(x_ret, y_ret, x_neg_ret, y_neg_ret)
 
     def mine_hard(self, idxs, lengths):
         bs = idxs.shape[0]
@@ -182,10 +279,10 @@ class Averaging(Encoder):
         mask = (
             torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
         ).float()
-        word_embs = (word_embs * mask.unsqueeze(dim=2)).sum(dim=1)
-        pooled = word_embs / lengths.unsqueeze(dim=1)
+        pooled = (word_embs * mask.unsqueeze(dim=2)).sum(dim=1)
+        pooled = pooled / lengths.unsqueeze(dim=1)
 
-        return pooled, (word_embs,)
+        return pooled, (word_embs, mask)
 
 
 class Attn(Encoder):
@@ -208,7 +305,7 @@ class Attn(Encoder):
         a = F.softmax(scores, dim=-1)
         pooled = (a.unsqueeze(dim=1) @ word_embs).squeeze(dim=1)
 
-        return pooled, (word_embs,)
+        return pooled, (word_embs, mask)
 
 
 class LSTM(Encoder):
@@ -254,4 +351,4 @@ class LSTM(Encoder):
         pooled = (all_hids * mask.unsqueeze(dim=2)).sum(dim=1)
         pooled = pooled / lengths.unsqueeze(dim=1)
 
-        return pooled, (all_hids,)
+        return pooled, (all_hids, mask)
