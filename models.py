@@ -122,7 +122,7 @@ class NCESoftmaxLoss(nn.Module):
 
     def __init__(self, nce_t):
         super(NCESoftmaxLoss, self).__init__()
-        self.loss = nn.CrossEntropyLoss()
+        self.loss = nn.CrossEntropyLoss(reduction="none")
         self.nce_t = nce_t
 
     def forward(self, x_ret, y_ret, x_neg_ret, y_neg_ret):

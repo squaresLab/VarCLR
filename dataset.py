@@ -99,9 +99,10 @@ class ParaDataset(Dataset):
 
 
 class ParaDataModule(pl.LightningDataModule):
-    def __init__(self, train_data_file: str, test_data_files, args):
+    def __init__(self, train_data_file: str, valid_data_file: str, test_data_files: str, args):
         super().__init__()
         self.train_data_file = train_data_file
+        self.valid_data_file = valid_data_file
         self.test_data_files = test_data_files.split(",")
         self.args = args
 
@@ -114,12 +115,14 @@ class ParaDataModule(pl.LightningDataModule):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
             self.train = ParaDataset(self.train_data_file, self.args, training=True)
-            # self.train, self.valid = random_split(
-            #     self.train, [len(self.train) - 5000, 5000]
-            # )
-            # self.valid.dataset.training = False
-            # HACK: Wieting et al. uses SST test set for validation
-            self.valid = ParaDataset(self.test_data_files[0], self.args, training=False)
+            if self.valid_data_file is None:
+                self.train, self.valid = random_split(
+                    self.train, [len(self.train) - 5000, 5000]
+                )
+                self.valid.training = False
+                self.valid.data_file = self.train_data_file
+            else:
+                self.valid = ParaDataset(self.valid_data_file, self.args, training=False)
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:

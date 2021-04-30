@@ -17,7 +17,8 @@ def add_options(parser):
     # fmt: off
     # Dataset
     parser.add_argument("--train-data-file", default="moses_nli_for_simcse.csv", help="training data")
-    parser.add_argument("--test-data-files", default="STS-B/original/sts-dev.tsv,STS-B/original/sts-test.tsv,STS/STS17-test/STS.input.track5.en-en.txt,idbench/small_pair_wise.csv,idbench/medium_pair_wise.csv,idbench/large_pair_wise.csv", help="test data")
+    parser.add_argument("--valid-data-file", default=None, type=str, help="validation data")
+    parser.add_argument("--test-data-files", default="STS-B/original/sts-test.tsv,STS/STS17-test/STS.input.track5.en-en.txt,idbench/small_pair_wise.csv,idbench/medium_pair_wise.csv,idbench/large_pair_wise.csv", help="test data")
     parser.add_argument("--zero-unk", default=1, type=int, help="whether to ignore unknown tokens")
     parser.add_argument("--ngrams", default=3, type=int, help="whether to use character n-grams")
     parser.add_argument("--tokenization", default="sp", type=str, choices=["sp", "ngrams"], help="which tokenization to use")
@@ -60,7 +61,9 @@ if __name__ == "__main__":
     add_options(parser)
     args = parser.parse_args()
 
-    dm = ParaDataModule(args.train_data_file, args.test_data_files, args)
+    dm = ParaDataModule(
+        args.train_data_file, args.valid_data_file, args.test_data_files, args
+    )
     if not os.path.exists(args.vocab_path):
         dm.setup()
 
@@ -69,9 +72,6 @@ if __name__ == "__main__":
         model = model.load_from_checkpoint(args.load_file, args=args, strict=False)
     model.datamodule = dm
 
-    wandb_logger = WandbLogger(name=args.name, project="idbench", log_model=True)
-    wandb_logger.log_hyperparams(args)
-    args = argparse.Namespace(**wandb_logger.experiment.config)
     if not args.test and "bert" in args.sp_model:
         # Load pre-trained word embeddings from bert
         bert = AutoModel.from_pretrained(args.sp_model)
@@ -84,26 +84,43 @@ if __name__ == "__main__":
                 pass
         del bert
 
+    if args.valid_data_file is not None:
+        callbacks = [
+            EarlyStopping(
+                monitor=f"spearmanr/val_{os.path.basename(dm.valid_data_file)}",
+                mode="max",
+                patience=args.patience,
+            ),
+            ModelCheckpoint(
+                monitor=f"spearmanr/val_{os.path.basename(dm.valid_data_file)}",
+                mode="max",
+            ),
+        ]
+    else:
+        callbacks = [
+            EarlyStopping(
+                monitor=f"loss/val_{os.path.basename(dm.train_data_file)}",
+                patience=args.patience,
+            ),
+            ModelCheckpoint(monitor=f"loss/val_{os.path.basename(dm.train_data_file)}"),
+        ]
+
+    wandb_logger = WandbLogger(name=args.name, project="idbench", log_model=True)
+    wandb_logger.log_hyperparams(args)
+    args = argparse.Namespace(**wandb_logger.experiment.config)
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         logger=wandb_logger,
         gpus=args.gpu,
         auto_select_gpus=True,
         gradient_clip_val=args.grad_clip,
-        callbacks=[
-            EarlyStopping(
-                monitor=f"spearmanr/val_{os.path.basename(dm.test_data_files[0])}",
-                mode="max",
-                patience=args.patience,
-            ),
-            ModelCheckpoint(
-                monitor=f"spearmanr/val_{os.path.basename(dm.test_data_files[0])}",
-                mode="max",
-            ),
-        ],
+        callbacks=callbacks,
         progress_bar_refresh_rate=10,
     )
 
     if not args.test:
         trainer.fit(model, datamodule=dm)
-    trainer.test(model, datamodule=dm)
+        # will automatically load and test the best checkpoint instead of the last model
+        trainer.test(datamodule=dm)
+    else:
+        trainer.test(model, datamodule=dm)
