@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data.sampler import RandomSampler
 
 from utils import Example, TextPreprocessor, Vocab
 
@@ -104,6 +105,7 @@ class ParaDataModule(pl.LightningDataModule):
         self.train_data_file = train_data_file
         self.valid_data_file = valid_data_file
         self.test_data_files = test_data_files.split(",")
+        self.train_percent = args.train_percent
         self.args = args
 
     def prepare_data(self):
@@ -123,6 +125,8 @@ class ParaDataModule(pl.LightningDataModule):
                 self.valid.data_file = self.train_data_file
             else:
                 self.valid = ParaDataset(self.valid_data_file, self.args, training=False)
+            num_for_training = int(len(self.train) * self.train_percent)
+            self.train = random_split(self.train, [num_for_training, len(self.train) - num_for_training])[0]
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:

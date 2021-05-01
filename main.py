@@ -48,18 +48,19 @@ def add_options(parser):
     parser.add_argument("--batch-size", default=1024, type=int, help="size of batches")
     parser.add_argument("--load-file", help="filename to load a pretrained model.")
     parser.add_argument("--test", action="store_true", help="only do evaluation")
+    parser.add_argument("--train-percent", default=1.0, type=float, help="percentage of data used for training")
+    parser.add_argument("--seed", default=42, type=int)
     # fmt: on
 
 
 if __name__ == "__main__":
-    seed = 42
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
     parser = argparse.ArgumentParser()
     add_options(parser)
     args = parser.parse_args()
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     dm = ParaDataModule(
         args.train_data_file, args.valid_data_file, args.test_data_files, args
