@@ -9,6 +9,7 @@ from scipy.stats import pearsonr, spearmanr
 from torch import optim
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
+from transformers import AutoModel
 
 
 class Scorer(nn.Module):
@@ -253,13 +254,13 @@ class ParaModel(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        return optim.Adam(self.parameters(), lr=self.args.lr)
+        return {'bert': optim.AdamW}.get(self.args.model, optim.Adam)(self.parameters(), lr=self.args.lr)
 
 
 class Encoder(nn.Module):
     @staticmethod
     def build(args):
-        return {"avg": Averaging, "lstm": LSTM, "attn": Attn}[args.model](args)
+        return {"avg": Averaging, "lstm": LSTM, "attn": Attn, "bert": BERT}[args.model](args)
 
     def forward(self, idxs, lengths):
         raise NotImplementedError
@@ -352,3 +353,16 @@ class LSTM(Encoder):
         pooled = pooled / lengths.unsqueeze(dim=1)
 
         return pooled, (all_hids, mask)
+
+class BERT(Encoder):
+    def __init__(self, args):
+        super(BERT, self).__init__()
+        self.transformer = AutoModel.from_pretrained(args.bert_model)
+
+    def forward(self, input_ids, attention_mask):
+        output = self.transformer(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
+        all_hids = output.last_hidden_state
+        # pooled = all_hids[:, 0]
+        pooled = (all_hids * attention_mask.unsqueeze(dim=2)).sum(dim=1)
+
+        return pooled, (all_hids, attention_mask)
