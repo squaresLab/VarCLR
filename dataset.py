@@ -9,7 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset, random_split
 from torch.utils.data.sampler import RandomSampler
 
-from utils import Example, TextPreprocessor, Vocab
+from utils import Example, TextPreprocessor, Vocab, PretrainedTokenizer
 
 
 class ParaDataset(Dataset):
@@ -98,6 +98,21 @@ class ParaDataset(Dataset):
         else:
             return ret
 
+    @staticmethod
+    def collate_fn_transformers(example_pairs):
+        def torchify(batch: List[Example]):
+            tokenizer = PretrainedTokenizer.get_instance()
+            ret = tokenizer([ex.sentence for ex in batch], return_tensors="pt", padding=True)
+            return ret['input_ids'], ret['attention_mask']
+
+        ret = torchify([pair[0] for pair in example_pairs]), torchify(
+            [pair[1] for pair in example_pairs]
+        )
+        if len(example_pairs[0]) == 3:
+            return *ret, torch.tensor([e[2] for e in example_pairs])
+        else:
+            return ret
+
 
 class ParaDataModule(pl.LightningDataModule):
     def __init__(self, train_data_file: str, valid_data_file: str, test_data_files: str, args):
@@ -140,7 +155,7 @@ class ParaDataModule(pl.LightningDataModule):
             self.train,
             batch_size=self.args.batch_size,
             num_workers=self.args.num_workers,
-            collate_fn=ParaDataset.collate_fn,
+            collate_fn=ParaDataset.collate_fn if self.args.model != "bert" else ParaDataset.collate_fn_transformers,
         )
 
     def val_dataloader(self):
@@ -148,7 +163,7 @@ class ParaDataModule(pl.LightningDataModule):
             self.valid,
             batch_size=self.args.batch_size,
             num_workers=self.args.num_workers,
-            collate_fn=ParaDataset.collate_fn,
+            collate_fn=ParaDataset.collate_fn if self.args.model != "bert" else ParaDataset.collate_fn_transformers,
         )
 
     def test_dataloader(self):
@@ -157,7 +172,7 @@ class ParaDataModule(pl.LightningDataModule):
                 test,
                 batch_size=self.args.batch_size,
                 num_workers=self.args.num_workers,
-                collate_fn=ParaDataset.collate_fn,
+                collate_fn=ParaDataset.collate_fn if self.args.model != "bert" else ParaDataset.collate_fn_transformers,
             )
             for test in self.tests
         ]

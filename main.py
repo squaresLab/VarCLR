@@ -11,6 +11,7 @@ from transformers import AutoModel
 
 from dataset import ParaDataModule
 from models import ParaModel
+from utils import PretrainedTokenizer
 
 
 def add_options(parser):
@@ -27,7 +28,8 @@ def add_options(parser):
     parser.add_argument("--num-workers", default=4, type=int, help="Path to vocabulary")
 
     # Model
-    parser.add_argument("--model", default="avg", choices=["avg", "lstm", "attn"], help="type of base model to train.")
+    parser.add_argument("--model", default="avg", choices=["avg", "lstm", "attn", "bert"], help="type of base model to train.")
+    parser.add_argument("--bert-model", default="microsoft/codebert-base-mlm", help="type of bert model to load.")
     parser.add_argument("--dim", default=300, type=int, help="dimension of input embeddings")
     parser.add_argument("--hidden-dim", default=150, type=int, help="hidden dim size of LSTM")
     parser.add_argument("--scramble-rate", default=0, type=float, help="rate of scrambling in for LSTM")
@@ -73,7 +75,7 @@ if __name__ == "__main__":
         model = model.load_from_checkpoint(args.load_file, args=args, strict=False)
     model.datamodule = dm
 
-    if not args.test and "bert" in args.sp_model:
+    if not args.test and "bert" in args.sp_model and args.model != "bert":
         # Load pre-trained word embeddings from bert
         bert = AutoModel.from_pretrained(args.sp_model)
         for word, idx in torch.load(args.vocab_path).items():
@@ -84,6 +86,8 @@ if __name__ == "__main__":
             except ValueError:
                 pass
         del bert
+    if "bert" in args.model:
+        PretrainedTokenizer.set_instance(args.bert_model)
 
     if args.valid_data_file is not None:
         callbacks = [
@@ -106,7 +110,7 @@ if __name__ == "__main__":
             ModelCheckpoint(monitor=f"loss/val_{os.path.basename(dm.train_data_file)}"),
         ]
 
-    wandb_logger = WandbLogger(name=args.name, project="idbench", log_model=True)
+    wandb_logger = WandbLogger(name=args.name, project="idbench_new", log_model=True)
     wandb_logger.log_hyperparams(args)
     args = argparse.Namespace(**wandb_logger.experiment.config)
     trainer = pl.Trainer(
@@ -117,6 +121,7 @@ if __name__ == "__main__":
         gradient_clip_val=args.grad_clip,
         callbacks=callbacks,
         progress_bar_refresh_rate=10,
+        val_check_interval=0.25
     )
 
     if not args.test:
