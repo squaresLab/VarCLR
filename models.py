@@ -358,11 +358,14 @@ class BERT(Encoder):
     def __init__(self, args):
         super(BERT, self).__init__()
         self.transformer = AutoModel.from_pretrained(args.bert_model)
+        self.last_n_layer_output = args.last_n_layer_output
 
     def forward(self, input_ids, attention_mask):
         output = self.transformer(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
-        all_hids = output.last_hidden_state
-        # pooled = all_hids[:, 0]
-        pooled = (all_hids * attention_mask.unsqueeze(dim=2)).sum(dim=1)
+        all_hids = output.hidden_states
+        # take [CLS] hidden state
+        pooled = all_hids[-self.last_n_layer_output][:, 0]
+        # take average of word hidden states
+        # pooled = (all_hids * attention_mask.unsqueeze(dim=2)).sum(dim=1)
 
         return pooled, (all_hids, attention_mask)

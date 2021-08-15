@@ -38,6 +38,7 @@ def add_options(parser):
     parser.add_argument("--nce-t", default=0.05, type=float, help="temperature for noise contrastive estimation loss")
     parser.add_argument("--scorer", default="cosine", choices=["cosine", "biattn", "decatt"], help="scorer to evaluate similarity")
     parser.add_argument("--temperature", default=100, type=float, help="temperature for biattn scorer")
+    parser.add_argument("--last-n-layer-output", default=1, type=int, help="last layer representation used as output")
 
     # Training
     parser.add_argument("--name", default="Ours-FT", help="method name")
@@ -129,4 +130,7 @@ if __name__ == "__main__":
         # will automatically load and test the best checkpoint instead of the last model
         trainer.test(datamodule=dm)
     else:
+        # save in hf transformer ckpt format
+        if "bert" in args.model:
+            model.encoder.transformer.save_pretrained("bert_saved")
         trainer.test(model, datamodule=dm)

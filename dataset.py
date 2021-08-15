@@ -134,7 +134,7 @@ class ParaDataModule(pl.LightningDataModule):
             self.train = ParaDataset(self.train_data_file, self.args, training=True)
             if self.valid_data_file is None:
                 self.train, self.valid = random_split(
-                    self.train, [len(self.train) - 5000, 5000]
+                    self.train, [len(self.train) - 1000, 1000]
                 )
                 self.valid.training = False
                 self.valid.data_file = self.train_data_file
