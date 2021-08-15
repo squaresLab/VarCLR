@@ -254,13 +254,17 @@ class ParaModel(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        return {'bert': optim.AdamW}.get(self.args.model, optim.Adam)(self.parameters(), lr=self.args.lr)
+        return {"bert": optim.AdamW}.get(self.args.model, optim.Adam)(
+            self.parameters(), lr=self.args.lr
+        )
 
 
 class Encoder(nn.Module):
     @staticmethod
     def build(args):
-        return {"avg": Averaging, "lstm": LSTM, "attn": Attn, "bert": BERT}[args.model](args)
+        return {"avg": Averaging, "lstm": LSTM, "attn": Attn, "bert": BERT}[args.model](
+            args
+        )
 
     def forward(self, idxs, lengths):
         raise NotImplementedError
@@ -354,6 +358,7 @@ class LSTM(Encoder):
 
         return pooled, (all_hids, mask)
 
+
 class BERT(Encoder):
     def __init__(self, args):
         super(BERT, self).__init__()
@@ -361,7 +366,11 @@ class BERT(Encoder):
         self.last_n_layer_output = args.last_n_layer_output
 
     def forward(self, input_ids, attention_mask):
-        output = self.transformer(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
+        output = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
         all_hids = output.hidden_states
         # take [CLS] hidden state
         pooled = all_hids[-self.last_n_layer_output][:, 0]

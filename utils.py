@@ -73,9 +73,11 @@ class Tokenizer:
     def encode(self, text):
         raise NotImplementedError
 
+
 class SplitTokenizer(Tokenizer):
     def encode(self, text):
         return text.strip().split()
+
 
 class SPTokenizer(Tokenizer):
     def __init__(self, model_path) -> None:

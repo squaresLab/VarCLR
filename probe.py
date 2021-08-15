@@ -14,6 +14,7 @@ from transformers import RobertaForMaskedLM, RobertaTokenizer, pipeline
 from utils import canonicalize
 from compute_correlations import test_correlation
 
+
 def test_template(fill_mask, template, args):
     fill_mask_results = {}
     template_filled = []
@@ -39,24 +40,31 @@ def test_template(fill_mask, template, args):
         token_scores = Counter()
         ys = []
         for rets, similarity in zip(all_rets, pairs["similarity"].tolist()):
-            if similarity == "NAN": continue
+            if similarity == "NAN":
+                continue
             for ret in rets:
-                token_scores[ret['token_str']] += ret['score']
+                token_scores[ret["token_str"]] += ret["score"]
             ys.append(similarity)
         y = np.array(ys)
 
         # V = 3 if csv == args.small else 10
         # token2id = {x[0]: idx for idx, x in enumerate(token_scores.most_common(V))}
         V = 3
-        token2id = {' this': 0, 'this': 1, ' that': 2}
+        token2id = {" this": 0, "this": 1, " that": 2}
         print(token2id)
         Xs = []
-        for var1, var2, rets, similarity in zip(pairs["id1"].tolist(), pairs["id2"].tolist(), all_rets, pairs["similarity"].tolist()):
-            if similarity == "NAN": continue
+        for var1, var2, rets, similarity in zip(
+            pairs["id1"].tolist(),
+            pairs["id2"].tolist(),
+            all_rets,
+            pairs["similarity"].tolist(),
+        ):
+            if similarity == "NAN":
+                continue
             x = np.zeros(V)
             for ret in rets:
-                if ret['token_str'] in token2id:
-                    x[token2id[ret['token_str']]] = ret['score']
+                if ret["token_str"] in token2id:
+                    x[token2id[ret["token_str"]]] = ret["score"]
             Xs.append(x)
         X = np.stack(Xs)
 
@@ -67,11 +75,11 @@ def test_template(fill_mask, template, args):
             select = np.ones(N, dtype=bool)
             select[i] = 0
             reg = LinearRegression().fit(X[select], y[select])
-            preds.append(reg.predict(X[i:i+1]).item())
+            preds.append(reg.predict(X[i : i + 1]).item())
         ret = []
         idx = 0
         for similarity in pairs["similarity"].tolist():
-            if similarity == "NAN": 
+            if similarity == "NAN":
                 ret.append("NAN")
             else:
                 ret.append(preds[idx])
@@ -79,16 +87,27 @@ def test_template(fill_mask, template, args):
 
         pairs[args.name] = ret
         pairs.to_csv(csv, index=False)
-    
+
     ret = test_correlation(args)
     return ret[args.name]
+
 
 def read_templates(fname):
     with open(fname, encoding="utf-8-sig") as f:
         templates = []
         for line in f:
             tokens = json.loads(line)["UpdatedCodeChunkTokens"]
-            if len(tokens) < 40 and len([token for token in tokens if token.startswith("@@") and token.endswith("@@")]) == 2:
+            if (
+                len(tokens) < 40
+                and len(
+                    [
+                        token
+                        for token in tokens
+                        if token.startswith("@@") and token.endswith("@@")
+                    ]
+                )
+                == 2
+            ):
                 new_tokens = []
                 first = False
                 for token in tokens:
@@ -100,6 +119,7 @@ def read_templates(fname):
                 templates.append(new_tokens)
     return templates
 
+
 def sample_template(templates):
     while True:
         template = random.choice(templates).copy()
@@ -109,14 +129,17 @@ def sample_template(templates):
             template[random.randint(s + 1, t - 1)] = "<mask>"
             yield " ".join(template)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--small', default="results/small_pair_wise.csv", help="Pairwise scores in small dataset")
-    parser.add_argument('--medium', default="results/medium_pair_wise.csv", help="Pairwise scores in medium dataset")
-    parser.add_argument('--large', default="results/large_pair_wise.csv", help="Pairwise scores in large dataset")
-    parser.add_argument('--combined', help="Add combined embedding", default=False, action='store_true')
-    parser.add_argument('--sample-template-json', default="github_commits_all_unfilt_awesome.dataset.jsonl")
+    # fmt: off
+    parser.add_argument("--small", default="results/small_pair_wise.csv", help="Pairwise scores in small dataset")
+    parser.add_argument("--medium", default="results/medium_pair_wise.csv", help="Pairwise scores in medium dataset")
+    parser.add_argument("--large", default="results/large_pair_wise.csv", help="Pairwise scores in large dataset")
+    parser.add_argument("--combined", help="Add combined embedding", default=False, action="store_true")
+    parser.add_argument("--sample-template-json", default="github_commits_all_unfilt_awesome.dataset.jsonl")
     parser.add_argument("--name", help="method name")
+    # fmt: on
     args = parser.parse_args()
 
     model = RobertaForMaskedLM.from_pretrained("microsoft/codebert-base-mlm")
@@ -124,7 +147,9 @@ if __name__ == "__main__":
     tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base-mlm")
 
     # TEMPLATE = "for ({0} <mask> {1}) return 0; "
-    fill_mask = pipeline('fill-mask', model=model, tokenizer=tokenizer, top_k=20, device=0)
+    fill_mask = pipeline(
+        "fill-mask", model=model, tokenizer=tokenizer, top_k=20, device=0
+    )
 
     results = {}
     max_score = 0

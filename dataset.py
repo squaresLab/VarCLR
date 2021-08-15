@@ -102,8 +102,10 @@ class ParaDataset(Dataset):
     def collate_fn_transformers(example_pairs):
         def torchify(batch: List[Example]):
             tokenizer = PretrainedTokenizer.get_instance()
-            ret = tokenizer([ex.sentence for ex in batch], return_tensors="pt", padding=True)
-            return ret['input_ids'], ret['attention_mask']
+            ret = tokenizer(
+                [ex.sentence for ex in batch], return_tensors="pt", padding=True
+            )
+            return ret["input_ids"], ret["attention_mask"]
 
         ret = torchify([pair[0] for pair in example_pairs]), torchify(
             [pair[1] for pair in example_pairs]
@@ -115,7 +117,9 @@ class ParaDataset(Dataset):
 
 
 class ParaDataModule(pl.LightningDataModule):
-    def __init__(self, train_data_file: str, valid_data_file: str, test_data_files: str, args):
+    def __init__(
+        self, train_data_file: str, valid_data_file: str, test_data_files: str, args
+    ):
         super().__init__()
         self.train_data_file = train_data_file
         self.valid_data_file = valid_data_file
@@ -139,9 +143,13 @@ class ParaDataModule(pl.LightningDataModule):
                 self.valid.training = False
                 self.valid.data_file = self.train_data_file
             else:
-                self.valid = ParaDataset(self.valid_data_file, self.args, training=False)
+                self.valid = ParaDataset(
+                    self.valid_data_file, self.args, training=False
+                )
             num_for_training = int(len(self.train) * self.train_percent)
-            self.train = random_split(self.train, [num_for_training, len(self.train) - num_for_training])[0]
+            self.train = random_split(
+                self.train, [num_for_training, len(self.train) - num_for_training]
+            )[0]
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
@@ -155,7 +163,9 @@ class ParaDataModule(pl.LightningDataModule):
             self.train,
             batch_size=self.args.batch_size,
             num_workers=self.args.num_workers,
-            collate_fn=ParaDataset.collate_fn if self.args.model != "bert" else ParaDataset.collate_fn_transformers,
+            collate_fn=ParaDataset.collate_fn
+            if self.args.model != "bert"
+            else ParaDataset.collate_fn_transformers,
         )
 
     def val_dataloader(self):
@@ -163,7 +173,9 @@ class ParaDataModule(pl.LightningDataModule):
             self.valid,
             batch_size=self.args.batch_size,
             num_workers=self.args.num_workers,
-            collate_fn=ParaDataset.collate_fn if self.args.model != "bert" else ParaDataset.collate_fn_transformers,
+            collate_fn=ParaDataset.collate_fn
+            if self.args.model != "bert"
+            else ParaDataset.collate_fn_transformers,
         )
 
     def test_dataloader(self):
@@ -172,7 +184,9 @@ class ParaDataModule(pl.LightningDataModule):
                 test,
                 batch_size=self.args.batch_size,
                 num_workers=self.args.num_workers,
-                collate_fn=ParaDataset.collate_fn if self.args.model != "bert" else ParaDataset.collate_fn_transformers,
+                collate_fn=ParaDataset.collate_fn
+                if self.args.model != "bert"
+                else ParaDataset.collate_fn_transformers,
             )
             for test in self.tests
         ]

@@ -8,7 +8,9 @@ from utils import CodePreprocessor
 
 
 def forward(model, input_ids, attention_mask):
-    output = model(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
+    output = model(
+        input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True
+    )
     all_hids = output.hidden_states
     pooled = all_hids[-4][:, 0]
     return pooled
@@ -40,14 +42,27 @@ if __name__ == "__main__":
     model = AutoModel.from_pretrained("bert_saved/")
     model.to(device)
     processor = CodePreprocessor(MockArgs())
-    ret_dict = dict(
-        vars=[],
-        embs=[]
-    )
+    ret_dict = dict(vars=[], embs=[])
     for idx, vars in enumerate(tqdm(batcher(64))):
         ret = tokenizer(vars, return_tensors="pt", padding=True)
-        embs = forward(model, ret['input_ids'].to(device), ret['attention_mask'].to(device)).detach().cpu()
-        ret_dict["vars"].extend(["".join([word.capitalize() if idx > 0 else word for idx, word in enumerate(var.split())]) for var in vars])
+        embs = (
+            forward(
+                model, ret["input_ids"].to(device), ret["attention_mask"].to(device)
+            )
+            .detach()
+            .cpu()
+        )
+        ret_dict["vars"].extend(
+            [
+                "".join(
+                    [
+                        word.capitalize() if idx > 0 else word
+                        for idx, word in enumerate(var.split())
+                    ]
+                )
+                for var in vars
+            ]
+        )
         ret_dict["embs"].extend(embs)
     ret_dict["embs"] = torch.stack(ret_dict["embs"])
     print(len(ret_dict["vars"]))

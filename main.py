@@ -122,7 +122,7 @@ if __name__ == "__main__":
         gradient_clip_val=args.grad_clip,
         callbacks=callbacks,
         progress_bar_refresh_rate=10,
-        val_check_interval=0.25
+        val_check_interval=0.25,
     )
 
     if not args.test:
