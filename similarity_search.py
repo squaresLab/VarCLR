@@ -10,6 +10,7 @@ if __name__ == "__main__":
     ret = torch.load(sys.argv[2])
     vars, embs = ret["vars"], ret["embs"]
     embs /= embs.norm(dim=1, keepdim=True)
+    embs = embs.cuda()
     var2idx = dict([(var, idx) for idx, var in enumerate(vars)])
     processor = CodePreprocessor(MockArgs())
     Ks = [1, 5, 10, 25, 50, 100, 250, 500, 1000]
@@ -17,7 +18,10 @@ if __name__ == "__main__":
     tot = 0
     with open(sys.argv[1], "r") as f:
         for line in f:
-            var1, var2 = line.strip().split()
+            try:
+                var1, var2 = line.strip().split()
+            except ValueError:
+                print("skpped: ", line)
             def canon(var):
                 return "".join(
                     [
@@ -26,7 +30,6 @@ if __name__ == "__main__":
                     ]
                 )
             var1, var2 = canon(var1), canon(var2)
-            print(f"{embs[var2idx[var1]].dot(embs[var2idx[var2]]):.4f}")
             if var1 not in var2idx or var2 not in var2idx:
                 print(f"variable {var1} or {var2} not found")
                 continue
