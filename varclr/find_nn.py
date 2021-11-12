@@ -9,8 +9,22 @@ if __name__ == "__main__":
     var2idx = dict([(var, idx) for idx, var in enumerate(vars)])
     # while (line := input()) != "":
     processor = CodePreprocessor(MockArgs())
-    for line in ['substr', 'item', 'count', 'rows', 'setInterval', 'minText', 'files', 'miny']:
-        line = "".join([word.capitalize() if idx > 0 else word for idx, word in enumerate(processor(line.strip()).split())])
+    for line in [
+        "substr",
+        "item",
+        "count",
+        "rows",
+        "setInterval",
+        "minText",
+        "files",
+        "miny",
+    ]:
+        line = "".join(
+            [
+                word.capitalize() if idx > 0 else word
+                for idx, word in enumerate(processor(line.strip()).split())
+            ]
+        )
         if line not in var2idx:
             print("variable not found")
             continue

@@ -35,15 +35,18 @@ def batcher(batch_size):
                 vars = []
     yield list(zip(*vars))
 
+
 def read_embs(fname):
     all_embs = {}
     with open(fname) as f:
         for line in f:
-            if not '"ID:' in line: continue
+            if not '"ID:' in line:
+                continue
             name, *emb = line.strip().split()
-            name = name[1:1 + name[1:].index('"')]
+            name = name[1 : 1 + name[1:].index('"')]
             all_embs[name] = torch.tensor(list(map(float, emb)))
     return all_embs
+
 
 if __name__ == "__main__":
     processor = CodePreprocessor(MockArgs())

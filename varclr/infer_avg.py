@@ -61,7 +61,6 @@ if __name__ == "__main__":
     processor2 = CodePreprocessor(MockArgs())
     ret_dict = dict(vars=[], embs=[])
 
-
     def torchify(batch):
         idxs = pad_sequence(
             [torch.tensor(ex, dtype=torch.long) for ex in batch],
@@ -70,12 +69,18 @@ if __name__ == "__main__":
         lengths = torch.tensor([len(e) for e in batch], dtype=torch.long)
         return idxs, lengths
 
-
     for var_ids, vars in tqdm(batcher(64)):
-        batch = torchify([[lookup(vocab, w, args.zero_unk)
-                           for w in var.split() if
-                           lookup(vocab, w, args.zero_unk) is not None] or [vocab[unk_string]]
-                          for var in var_ids])
+        batch = torchify(
+            [
+                [
+                    lookup(vocab, w, args.zero_unk)
+                    for w in var.split()
+                    if lookup(vocab, w, args.zero_unk) is not None
+                ]
+                or [vocab[unk_string]]
+                for var in var_ids
+            ]
+        )
         x_idxs, x_lengths = batch
         ret = model.encoder(x_idxs.to(device), x_lengths.to(device))
         embs, _ = ret

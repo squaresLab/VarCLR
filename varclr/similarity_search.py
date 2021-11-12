@@ -22,6 +22,7 @@ if __name__ == "__main__":
                 var1, var2 = line.strip().split()
             except ValueError:
                 print("skpped: ", line)
+
             def canon(var):
                 return "".join(
                     [
@@ -29,6 +30,7 @@ if __name__ == "__main__":
                         for idx, word in enumerate(processor(var).split())
                     ]
                 )
+
             var1, var2 = canon(var1), canon(var2)
             if var1 not in var2idx or var2 not in var2idx:
                 print(f"variable {var1} or {var2} not found")
