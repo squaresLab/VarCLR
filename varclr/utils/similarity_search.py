@@ -3,8 +3,8 @@ from collections import defaultdict
 
 import torch
 
-from infer import MockArgs
-from utils import CodePreprocessor
+from varclr.utils.infer import MockArgs
+from varclr.data.preprocessor import CodePreprocessor
 
 if __name__ == "__main__":
     ret = torch.load(sys.argv[2])

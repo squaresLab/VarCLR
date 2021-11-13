@@ -7,9 +7,10 @@ from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel
 
-from models import ParaModel
-from utils import CodePreprocessor, lookup, unk_string
-from main import add_options
+from models import Model
+from varclr.data.vocab import Vocab
+from varclr.data.preprocessor import CodePreprocessor
+from varclr.utils.options import add_options
 
 
 def forward(model, input_ids, attention_mask):
@@ -51,7 +52,7 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ParaModel(args)
+    model = Model(args)
     model = model.load_from_checkpoint(args.load_file, args=args, strict=False)
     model = model.to(device)
     model.eval()
@@ -73,11 +74,11 @@ if __name__ == "__main__":
         batch = torchify(
             [
                 [
-                    lookup(vocab, w, args.zero_unk)
+                    Vocab.lookup(vocab, w, args.zero_unk)
                     for w in var.split()
-                    if lookup(vocab, w, args.zero_unk) is not None
+                    if Vocab.lookup(vocab, w, args.zero_unk) is not None
                 ]
-                or [vocab[unk_string]]
+                or [vocab[Vocab.unk_string]]
                 for var in var_ids
             ]
         )

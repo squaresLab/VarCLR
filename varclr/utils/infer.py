@@ -2,8 +2,9 @@ import sys
 
 import torch
 from tqdm import tqdm
+from transformers import AutoTokenizer, AutoModel
 
-from utils import CodePreprocessor
+from varclr.data.preprocessor import CodePreprocessor
 
 
 def forward(model, input_ids, attention_mask):
@@ -24,36 +25,33 @@ def batcher(batch_size):
     uniq = set()
     with open(sys.argv[1]) as f:
         vars = []
-        for uncanon_var in f:
-            uncanon_var = uncanon_var.strip()
-            var = processor(uncanon_var)
+        for var in f:
+            var = processor(var.strip())
             if var not in uniq:
                 uniq.add(var)
-                vars.append((var, uncanon_var))
+                vars.append(var)
             if len(vars) == batch_size:
-                yield list(zip(*vars))
+                yield vars
                 vars = []
-    yield list(zip(*vars))
-
-
-def read_embs(fname):
-    all_embs = {}
-    with open(fname) as f:
-        for line in f:
-            if not '"ID:' in line:
-                continue
-            name, *emb = line.strip().split()
-            name = name[1 : 1 + name[1:].index('"')]
-            all_embs[name] = torch.tensor(list(map(float, emb)))
-    return all_embs
+    yield vars
 
 
 if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+    model = AutoModel.from_pretrained("bert_saved/")
+    model.to(device)
     processor = CodePreprocessor(MockArgs())
     ret_dict = dict(vars=[], embs=[])
-    all_embs = read_embs(sys.argv[2])
-    for vars, uncanon_vars in tqdm(batcher(64)):
-        embs = (all_embs[f"ID:{v}"] for v in uncanon_vars)
+    for idx, vars in enumerate(tqdm(batcher(64))):
+        ret = tokenizer(vars, return_tensors="pt", padding=True)
+        embs = (
+            forward(
+                model, ret["input_ids"].to(device), ret["attention_mask"].to(device)
+            )
+            .detach()
+            .cpu()
+        )
         ret_dict["vars"].extend(
             [
                 "".join(
@@ -69,4 +67,4 @@ if __name__ == "__main__":
     ret_dict["embs"] = torch.stack(ret_dict["embs"])
     print(len(ret_dict["vars"]))
     print(ret_dict["embs"].shape)
-    torch.save(ret_dict, "saved_ft")
+    torch.save(ret_dict, "saved")

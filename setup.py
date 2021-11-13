@@ -14,6 +14,6 @@ setup(
         "pytorch-lightning>=1.0.8",
         "black>=21.10b0",
         "pre-commit>=2.15.0",
-        "wandb>=0.10.12",
+        "wandb>=0.12.6",
     ],
 )

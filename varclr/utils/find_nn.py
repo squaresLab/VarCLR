@@ -1,7 +1,7 @@
 import torch
 
 from infer import MockArgs
-from utils import CodePreprocessor
+from varclr.data.preprocessor import CodePreprocessor
 
 if __name__ == "__main__":
     ret = torch.load("saved")
