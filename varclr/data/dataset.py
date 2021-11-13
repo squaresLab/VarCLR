@@ -133,7 +133,7 @@ class RenamesDataset(Dataset):
             [pair[1] for pair in example_pairs]
         )
         if len(example_pairs[0]) == 3:
-            return *ret, torch.tensor([e[2] for e in example_pairs])
+            return ret[0], ret[1], torch.tensor([e[2] for e in example_pairs])
         else:
             return ret
 
@@ -150,7 +150,7 @@ class RenamesDataset(Dataset):
             [pair[1] for pair in example_pairs]
         )
         if len(example_pairs[0]) == 3:
-            return *ret, torch.tensor([e[2] for e in example_pairs])
+            return ret[0], ret[1], torch.tensor([e[2] for e in example_pairs])
         else:
             return ret
 

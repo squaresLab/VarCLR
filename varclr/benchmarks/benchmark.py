@@ -22,6 +22,9 @@ class Benchmark:
 
 
 class IdBench(Benchmark):
+
+    BASELINES = ["FT-cbow", "FT-SG", "w2v-SG", "w2v-cbow", "Path-based"]
+
     def __init__(self, variant: str, metric: str) -> None:
         super().__init__()
         assert variant in {"small", "medium", "large"}
@@ -36,7 +39,13 @@ class IdBench(Benchmark):
             ),
         )
 
-        df = pairs[pairs.apply(lambda r: r[self.metric] != "NAN", axis=1)]
+        df = pairs[
+            pairs.apply(
+                lambda r: r[self.metric] != "NAN"
+                and all(r[b] != "NAN" for b in IdBench.BASELINES),
+                axis=1,
+            )
+        ]
         self.varlist1 = df["id1"].tolist()
         self.varlist2 = df["id2"].tolist()
         self.scores = df[self.metric].astype(float).tolist()

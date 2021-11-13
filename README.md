@@ -8,7 +8,7 @@
 
 <div align="center">
 
-[![GitHub Workflow Status](https://img.shields.io/github/workflow/status/qibinc/VarCLR/install)](https://github.com/qibinc/VarCLR/actions/workflows/install.yml)
+[![Unittest](https://img.shields.io/github/workflow/status/qibinc/VarCLR/test)](https://github.com/qibinc/VarCLR/actions/workflows/test.yml)
 [![GitHub stars](https://img.shields.io/github/stars/qibinc/VarCLR)](https://github.com/qibinc/VarCLR/stargazers)
 [![GitHub license](https://img.shields.io/github/license/qibinc/VarCLR)](https://github.com/qibinc/VarCLR/blob/master/LICENSE)
 [![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
@@ -30,6 +30,7 @@
     - [Load the IdBench benchmark](#load-the-idbench-benchmark)
     - [Compute VarCLR scores and evaluate](#compute-varclr-scores-and-evaluate)
     - [Let's compare with the original CodeBERT](#lets-compare-with-the-original-codebert)
+  - [Cite](#cite)
 
 ### Step 0: Install
 
@@ -104,11 +105,10 @@ b2 = Benchmark.build("idbench", variant="large", metric="relatedness")
 id1_list, id2_list = b1.get_inputs()
 predicted = model.score(id1_list, id2_list)
 print(b1.evaluate(predicted))
-# {'spearmanr': 0.5390340974574482, 'pearsonr': 0.5362089298267027}
+# {'spearmanr': 0.5248567181503295, 'pearsonr': 0.5249843473193132}
 
-predicted = model.score(*b2.get_inputs())
-print(b2.evaluate(predicted))
-# {'spearmanr': 0.7972148537584689, 'pearsonr': 0.7974362707372282}
+print(b2.evaluate(model.score(*b2.get_inputs())))
+# {'spearmanr': 0.8012168379981921, 'pearsonr': 0.8021791703187449}
 ```
 
 #### Let's compare with the original [CodeBERT](https://github.com/microsoft/CodeBERT)
@@ -116,7 +116,15 @@ print(b2.evaluate(predicted))
 ```python
 codebert = Encoder.from_pretrained("codebert")
 print(b1.evaluate(codebert.score(*b1.get_inputs())))
-# {'spearmanr': 0.2093646019234957, 'pearsonr': 0.1776563875672398}
+# {'spearmanr': 0.2056582946575104, 'pearsonr': 0.1995058696927054}
 print(b2.evaluate(codebert.score(*b2.get_inputs())))
-# {'spearmanr': 0.3901366576044072, 'pearsonr': 0.2985373327753787}
+# {'spearmanr': 0.3909218857993804, 'pearsonr': 0.3378219622284688}
+```
+
+### Cite
+
+If you find VarCLR useful in your research, please cite our paper@ICSE2022:
+
+```bibtex
+TODO
 ```
