@@ -10,7 +10,7 @@ setup(
     packages=find_packages(exclude=[]),
     install_requires=[
         "torch>=1.7.1",
-        "transformers>=4.5.1",
+        "transformers==4.5.1",
         "pytorch-lightning>=1.0.8",
         "black>=21.10b0",
         "pre-commit>=2.15.0",
