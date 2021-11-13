@@ -4,12 +4,12 @@ from transformers import AutoTokenizer
 
 class Tokenizer:
     @staticmethod
-    def build(args):
-        if "sp.20k.model" in args.sp_model:
-            return SPTokenizer(args.sp_model)
-        elif "bert" in args.sp_model:
-            return PretrainedTokenizer(args.sp_model)
-        elif "split" in args.sp_model:
+    def build(sp_model):
+        if "sp.20k.model" in sp_model:
+            return SPTokenizer(sp_model)
+        elif "bert" in sp_model:
+            return PretrainedTokenizer(sp_model)
+        elif "split" in sp_model:
             return SplitTokenizer()
         else:
             raise NotImplementedError

@@ -1,9 +1,9 @@
-import random
 import re
-from typing import Tuple
+from typing import List, Tuple, Union
 
 from sacremoses import MosesTokenizer
-from varclr.models import Tokenizer
+
+from varclr.models.tokenizers import Tokenizer
 
 
 class Preprocessor:
@@ -11,15 +11,19 @@ class Preprocessor:
     def build(data_file, args) -> Tuple["Preprocessor", "Preprocessor"]:
         if "STS" in data_file:
             print(f"Using STS processor for {data_file}")
-            return STSTextPreprocessor("en", args), STSTextPreprocessor("en", args)
+            return STSTextPreprocessor.from_args(args), STSTextPreprocessor.from_args(
+                args
+            )
         elif "idbench" in data_file:
             print(f"Using code processor for {data_file}")
-            return CodePreprocessor(args), CodePreprocessor(args)
+            return CodePreprocessor.from_args(args), CodePreprocessor.from_args(args)
         elif "20k" in data_file:
             return Preprocessor(), Preprocessor()
         elif "nli" in data_file or "cs-cs" in data_file:
             print(f"Using NLI processor for {data_file}")
-            return NLITextPreprocessor(args), NLITextPreprocessor(args)
+            return NLITextPreprocessor.from_args(args), NLITextPreprocessor.from_args(
+                args
+            )
         else:
             raise NotImplementedError
 
@@ -28,10 +32,14 @@ class Preprocessor:
 
 
 class NLITextPreprocessor(Preprocessor):
-    def __init__(self, args) -> None:
-        self.tokenization = args.tokenization
+    def __init__(self, tokenization, sp_model) -> None:
+        self.tokenization = tokenization
         if self.tokenization == "sp":
-            self.tokenizer = Tokenizer.build(args)
+            self.tokenizer = Tokenizer.build(sp_model)
+
+    @staticmethod
+    def from_args(args) -> "NLITextPreprocessor":
+        return NLITextPreprocessor(args.tokenization, args.sp_model)
 
     def __call__(self, sentence):
         sent = sentence.lower()
@@ -41,11 +49,15 @@ class NLITextPreprocessor(Preprocessor):
 
 
 class STSTextPreprocessor(Preprocessor):
-    def __init__(self, lang, args) -> None:
+    def __init__(self, lang, tokenization, sp_model) -> None:
         self.moses = MosesTokenizer(lang=lang)
-        self.tokenization = args.tokenization
+        self.tokenization = tokenization
         if self.tokenization == "sp":
-            self.tokenizer = Tokenizer.build(args)
+            self.tokenizer = Tokenizer.build(sp_model)
+
+    @staticmethod
+    def from_args(args) -> "STSTextPreprocessor":
+        return STSTextPreprocessor(args.tokenization, args.sp_model)
 
     def __call__(self, sentence):
         sent = " ".join(self.moses.tokenize(sentence))
@@ -56,12 +68,24 @@ class STSTextPreprocessor(Preprocessor):
 
 
 class CodePreprocessor(Preprocessor):
-    def __init__(self, args) -> None:
-        self.tokenization = args.tokenization
+    def __init__(self, tokenization=None, sp_model=None):
+        self.tokenization = tokenization
         if self.tokenization == "sp":
-            self.tokenizer = Tokenizer.build(args)
+            self.tokenizer = Tokenizer.build(sp_model)
 
-    def __call__(self, var):
+    @staticmethod
+    def from_args(args) -> "CodePreprocessor":
+        return CodePreprocessor(args.tokenization, args.sp_model)
+
+    def __call__(self, var: Union[str, List[str]]):
+        if isinstance(var, str):
+            return self._process(var)
+        elif isinstance(var, list) and all(isinstance(v, str) for v in var):
+            return [self._process(v) for v in var]
+        else:
+            raise NotImplementedError
+
+    def _process(self, var):
         var = var.replace("@", "")
         var = (
             re.sub("([a-z]|^)([A-Z]{1})", r"\1_\2", var)

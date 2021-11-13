@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="varclr",
@@ -15,5 +15,7 @@ setup(
         "black>=21.10b0",
         "pre-commit>=2.15.0",
         "wandb>=0.12.6",
+        "gdown>=4.2.0",
+        "isort>=5.8.0",
     ],
 )
