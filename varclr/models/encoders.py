@@ -7,9 +7,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
+from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModel, AutoTokenizer
 
 from varclr.data.preprocessor import CodePreprocessor
+from varclr.data.vocab import Vocab
 from varclr.models import urls_pretrained_model
 
 
@@ -72,6 +74,41 @@ class Encoder(nn.Module):
     @staticmethod
     def decor_forward(model_forward):
         """Decorate an encoder's forward pass to deal with raw inputs."""
+        processor = CodePreprocessor(
+            tokenization="sp", sp_model=urls_pretrained_model.PRETRAINED_TOKENIZER
+        )
+
+        def torchify(batch):
+            idxs = pad_sequence(
+                [torch.tensor(ex, dtype=torch.long) for ex in batch],
+                batch_first=True,
+            )
+            lengths = torch.tensor([len(e) for e in batch], dtype=torch.long)
+            return idxs, lengths
+
+        def tokenize_and_forward(self, inputs: Union[str, List[str]]) -> "torch.Tensor":
+            if isinstance(inputs, str):
+                inputs = [inputs]
+            var_ids = processor(inputs)
+            batch = torchify(
+                [
+                    [
+                        Vocab.lookup(self.vocab, w, True)
+                        for w in var.split()
+                        if Vocab.lookup(self.vocab, w, True) is not None
+                    ]
+                    or [self.vocab[Vocab.unk_string]]
+                    for var in var_ids
+                ]
+            )
+            idxs, lengths = batch
+            return model_forward(self, idxs, lengths)[0].detach()
+
+        return tokenize_and_forward
+
+    @staticmethod
+    def decor_bert_forward(model_forward):
+        """Decorate an encoder's forward pass to deal with raw inputs."""
         processor = CodePreprocessor()
         tokenizer = AutoTokenizer.from_pretrained(
             urls_pretrained_model.PRETRAINED_TOKENIZER
@@ -99,7 +136,31 @@ class Averaging(Encoder):
 
     @staticmethod
     def load(save_path: str) -> "Encoder":
-        raise NotImplementedError
+        gdown.cached_download(
+            urls_pretrained_model.PRETRAINED_AVG_URL,
+            os.path.join(save_path, "lstm.zip"),
+            md5=urls_pretrained_model.PRETRAINED_AVG_MD5,
+            postprocess=gdown.extractall,
+        )
+        state_dict = torch.load(
+            os.path.join(
+                save_path, urls_pretrained_model.PRETRAINED_AVG_FOLDER, "model"
+            ),
+            map_location=torch.device("cpu"),
+        )
+        vocab_size, dim = state_dict["encoder.embedding.weight"].shape
+        m = nn.Module()
+        m.encoder = Averaging(vocab_size, dim, 0)
+        m.load_state_dict(state_dict)
+        m = m.encoder
+        # HACK: for inference
+        vocab = torch.load(
+            os.path.join(
+                save_path, urls_pretrained_model.PRETRAINED_AVG_FOLDER, "vocab"
+            )
+        )
+        m.vocab = vocab
+        return m
 
     def forward(self, idxs, lengths):
         word_embs = self.embedding(idxs)
@@ -107,7 +168,8 @@ class Averaging(Encoder):
 
         bs, max_len, _ = word_embs.shape
         mask = (
-            torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
+            torch.arange(max_len).to(word_embs.device).expand(bs, max_len)
+            < lengths.unsqueeze(1)
         ).float()
         pooled = (word_embs * mask.unsqueeze(dim=2)).sum(dim=1)
         pooled = pooled / lengths.unsqueeze(dim=1)
@@ -142,7 +204,32 @@ class LSTM(Encoder):
 
     @staticmethod
     def load(save_path: str) -> "Encoder":
-        raise NotImplementedError
+        gdown.cached_download(
+            urls_pretrained_model.PRETRAINED_LSTM_URL,
+            os.path.join(save_path, "lstm.zip"),
+            md5=urls_pretrained_model.PRETRAINED_LSTM_MD5,
+            postprocess=gdown.extractall,
+        )
+        state_dict = torch.load(
+            os.path.join(
+                save_path, urls_pretrained_model.PRETRAINED_LSTM_FOLDER, "model"
+            ),
+            map_location=torch.device("cpu"),
+        )
+        hidden_dim = state_dict["encoder.e_hidden_init"].shape[2]
+        vocab_size, dim = state_dict["encoder.embedding.weight"].shape
+        m = nn.Module()
+        m.encoder = LSTM(hidden_dim, 0, vocab_size, dim)
+        m.load_state_dict(state_dict)
+        m = m.encoder
+        # HACK: for inference
+        vocab = torch.load(
+            os.path.join(
+                save_path, urls_pretrained_model.PRETRAINED_AVG_FOLDER, "vocab"
+            )
+        )
+        m.vocab = vocab
+        return m
 
     def forward(self, inputs, lengths):
         bsz, max_len = inputs.size()
@@ -163,7 +250,8 @@ class LSTM(Encoder):
 
         bs, max_len, _ = all_hids.shape
         mask = (
-            torch.arange(max_len).cuda().expand(bs, max_len) < lengths.unsqueeze(1)
+            torch.arange(max_len).to(in_embs.device).expand(bs, max_len)
+            < lengths.unsqueeze(1)
         ).float()
         pooled = (all_hids * mask.unsqueeze(dim=2)).sum(dim=1)
         pooled = pooled / lengths.unsqueeze(dim=1)
@@ -210,7 +298,7 @@ class BERT(Encoder):
 
         return pooled, (all_hids, attention_mask)
 
-    encode = Encoder.decor_forward(forward)
+    encode = Encoder.decor_bert_forward(forward)
 
 
 class CodeBERT(BERT):
