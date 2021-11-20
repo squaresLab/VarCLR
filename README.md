@@ -8,9 +8,9 @@
 
 <div align="center">
 
-[![Unittest](https://img.shields.io/github/workflow/status/qibinc/VarCLR/test)](https://github.com/qibinc/VarCLR/actions/workflows/test.yml)
-[![GitHub stars](https://img.shields.io/github/stars/qibinc/VarCLR)](https://github.com/qibinc/VarCLR/stargazers)
-[![GitHub license](https://img.shields.io/github/license/qibinc/VarCLR)](https://github.com/qibinc/VarCLR/blob/master/LICENSE)
+[![Unittest](https://img.shields.io/github/workflow/status/squaresLab/VarCLR/test)](https://github.com/squaresLab/VarCLR/actions/workflows/test.yml)
+[![GitHub stars](https://img.shields.io/github/stars/squaresLab/VarCLR)](https://github.com/squaresLab/VarCLR/stargazers)
+[![GitHub license](https://img.shields.io/github/license/squaresLab/VarCLR)](https://github.com/squaresLab/VarCLR/blob/master/LICENSE)
 [![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 
 </div>
