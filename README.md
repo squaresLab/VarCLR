@@ -17,6 +17,10 @@
 
 ## VarCLR: Variable Representation Pre-training via Contrastive Learning
 
+**New:** Paper accepted by ICSE 2022. Preprint coming soon!
+
+This repository contains code and pre-trained models for VarCLR, a contrastive learning based approach for learning semantic representations of variable names that effectively captures variable similarity, with state-of-the-art results on [IdBench@ICSE2021](https://conf.researchr.org/details/icse-2021/icse-2021-papers/3/IdBench-Evaluating-Semantic-Representations-of-Identifier-Names-in-Source-Code).
+
 - [VarCLR: Variable Representation Pre-training via Contrastive Learning](#varclr-variable-representation-pre-training-via-contrastive-learning)
   - [Step 0: Install](#step-0-install)
   - [Step 1: Load a Pre-trained VarCLR Model](#step-1-load-a-pre-trained-varclr-model)
@@ -30,6 +34,10 @@
     - [Load the IdBench benchmark](#load-the-idbench-benchmark)
     - [Compute VarCLR scores and evaluate](#compute-varclr-scores-and-evaluate)
     - [Let's compare with the original CodeBERT](#lets-compare-with-the-original-codebert)
+  - [Results on IdBench benchmarks](#results-on-idbench-benchmarks)
+    - [Similarity](#similarity)
+    - [Relatedness](#relatedness)
+  - [Pre-train your own VarCLR models](#pre-train-your-own-varclr-models)
   - [Cite](#cite)
 
 ### Step 0: Install
@@ -121,10 +129,44 @@ print(b2.evaluate(codebert.score(*b2.get_inputs())))
 # {'spearmanr': 0.3909218857993804, 'pearsonr': 0.3378219622284688}
 ```
 
+### Results on [IdBench](https://conf.researchr.org/details/icse-2021/icse-2021-papers/3/IdBench-Evaluating-Semantic-Representations-of-Identifier-Names-in-Source-Code) benchmarks
+
+#### Similarity
+
+| Method           | Small    | Medium   | Large    |
+| ---------------- | -------- | -------- | -------- |
+| FT-SG            | 0.30     | 0.29     | 0.28     |
+| LV               | 0.32     | 0.30     | 0.30     |
+| FT-cbow          | 0.35     | 0.38     | 0.38     |
+| VarCLR-Avg       | 0.47     | 0.45     | 0.44     |
+| VarCLR-LSTM      | 0.50     | 0.49     | 0.49     |
+| VarCLR-CodeBERT  | **0.53** | **0.53** | **0.51** |
+|                  |          |          |          |
+| Combined-IdBench | 0.48     | 0.59     | 0.57     |
+| Combined-VarCLR  | **0.66** | **0.65** | **0.62** |
+
+#### Relatedness
+
+| Method           | Small    | Medium   | Large    |
+| ---------------- | -------- | -------- | -------- |
+| LV               | 0.48     | 0.47     | 0.48     |
+| FT-SG            | 0.70     | 0.71     | 0.68     |
+| FT-cbow          | 0.72     | 0.74     | 0.73     |
+| VarCLR-Avg       | 0.67     | 0.66     | 0.66     |
+| VarCLR-LSTM      | 0.71     | 0.70     | 0.69     |
+| VarCLR-CodeBERT  | **0.79** | **0.79** | **0.80** |
+|                  |          |          |          |
+| Combined-IdBench | 0.71     | 0.78     | 0.79     |
+| Combined-VarCLR  | **0.79** | **0.81** | **0.85** |
+
+### Pre-train your own VarCLR models
+
+Coming soon.
+
 ### Cite
 
 If you find VarCLR useful in your research, please cite our paper@ICSE2022:
 
 ```bibtex
-TODO
+Coming soon.
 ```
