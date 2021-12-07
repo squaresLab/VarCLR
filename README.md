@@ -15,9 +15,9 @@
 
 </div>
 
-## VarCLR: Variable Representation Pre-training via Contrastive Learning
+## [VarCLR: Variable Representation Pre-training via Contrastive Learning](https://arxiv.org/abs/2112.02650)
 
-**New:** Paper accepted by ICSE 2022. Preprint coming soon!
+**New:** Paper accepted by ICSE 2022. Preprint at [arXiv](https://arxiv.org/abs/2112.02650)!
 
 This repository contains code and pre-trained models for VarCLR, a contrastive learning based approach for learning semantic representations of variable names that effectively captures variable similarity, with state-of-the-art results on [IdBench@ICSE2021](https://conf.researchr.org/details/icse-2021/icse-2021-papers/3/IdBench-Evaluating-Semantic-Representations-of-Identifier-Names-in-Source-Code).
 
@@ -168,5 +168,12 @@ Coming soon.
 If you find VarCLR useful in your research, please cite our paper@ICSE2022:
 
 ```bibtex
-Coming soon.
+@misc{chen2021varclr,
+      title={VarCLR: Variable Semantic Representation Pre-training via Contrastive Learning},
+      author={Qibin Chen and Jeremy Lacomis and Edward J. Schwartz and Graham Neubig and Bogdan Vasilescu and Claire Le Goues},
+      year={2021},
+      eprint={2112.02650},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE}
+}
 ```
