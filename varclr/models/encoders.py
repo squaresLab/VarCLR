@@ -42,12 +42,12 @@ class Encoder(nn.Module):
     def forward(self, idxs, lengths):
         raise NotImplementedError
 
-    def encode(self, inputs: Union[str, List[str]]) -> "torch.Tensor":
+    def encode(self, inputs: Union[str, List[str]]) -> torch.Tensor:
         raise NotImplementedError
 
     def score(
         self, inputx: Union[str, List[str]], inputy: Union[str, List[str]]
-    ) -> "torch.Tensor":
+    ) -> List[float]:
         if type(inputx) != type(inputy):
             raise Exception("Input X and Y must be either string or list of strings.")
         if isinstance(inputx, list) and len(inputx) != len(inputy):
@@ -58,7 +58,7 @@ class Encoder(nn.Module):
 
     def cross_score(
         self, inputx: Union[str, List[str]], inputy: Union[str, List[str]]
-    ) -> "torch.Tensor":
+    ) -> List[List[float]]:
         if isinstance(inputx, str):
             inputx = [inputx]
         if isinstance(inputy, str):
@@ -86,7 +86,7 @@ class Encoder(nn.Module):
             lengths = torch.tensor([len(e) for e in batch], dtype=torch.long)
             return idxs, lengths
 
-        def tokenize_and_forward(self, inputs: Union[str, List[str]]) -> "torch.Tensor":
+        def tokenize_and_forward(self, inputs: Union[str, List[str]]) -> torch.Tensor:
             if isinstance(inputs, str):
                 inputs = [inputs]
             var_ids = processor(inputs)
@@ -114,7 +114,7 @@ class Encoder(nn.Module):
             urls_pretrained_model.PRETRAINED_TOKENIZER
         )
 
-        def tokenize_and_forward(self, inputs: Union[str, List[str]]) -> "torch.Tensor":
+        def tokenize_and_forward(self, inputs: Union[str, List[str]]) -> torch.Tensor:
             inputs = processor(inputs)
             return_dict = tokenizer(inputs, return_tensors="pt", padding=True)
             return model_forward(
@@ -135,7 +135,7 @@ class Averaging(Encoder):
         return Averaging(args.vocab_size, args.dim, args.dropout)
 
     @staticmethod
-    def load(save_path: str) -> "Encoder":
+    def load(save_path: str) -> Encoder:
         gdown.cached_download(
             urls_pretrained_model.PRETRAINED_AVG_URL,
             os.path.join(save_path, "lstm.zip"),
@@ -203,7 +203,7 @@ class LSTM(Encoder):
         return LSTM(args.hidden_dim, args.dropout, args.vocab_size, args.dim)
 
     @staticmethod
-    def load(save_path: str) -> "Encoder":
+    def load(save_path: str) -> Encoder:
         gdown.cached_download(
             urls_pretrained_model.PRETRAINED_LSTM_URL,
             os.path.join(save_path, "lstm.zip"),
@@ -305,5 +305,5 @@ class CodeBERT(BERT):
     """Original CodeBERT model https://github.com/microsoft/CodeBERT."""
 
     @staticmethod
-    def load(save_path: str) -> "BERT":
+    def load(save_path: str) -> BERT:
         return BERT(bert_model="microsoft/codebert-base")
