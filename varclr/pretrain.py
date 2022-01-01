@@ -81,6 +81,7 @@ if __name__ == "__main__":
         callbacks=callbacks,
         progress_bar_refresh_rate=10,
         val_check_interval=0.25,
+        limit_train_batches=args.limit_train_batches,
     )
 
     if not args.test:

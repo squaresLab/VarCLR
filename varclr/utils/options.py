@@ -27,6 +27,7 @@ def add_options(parser):
     parser.add_argument("--gpu", default=1, type=int, help="whether to train on gpu")
     parser.add_argument("--grad-clip", default=1., type=float, help='clip threshold of gradients')
     parser.add_argument("--epochs", default=300, type=int, help="number of epochs to train")
+    parser.add_argument("--limit-train-batches", default=1.0, type=float, help="number of batches for each training epoch")
     parser.add_argument("--patience", default=40, type=int, help="early stopping patience")
     parser.add_argument("--lr", default=0.001, type=float, help="learning rate")
     parser.add_argument("--dropout", default=0.5, type=float, help="dropout rate")

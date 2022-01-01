@@ -32,8 +32,8 @@ jobs:
       - name: Disable wandb
         run: wandb disabled
       - name: Try pretrain avg
-        run:  python -m varclr.pretrain --model avg --name varclr-avg --epochs 1 --gpu 0
+        run:  python -m varclr.pretrain --model avg --name varclr-avg --epochs 1 --limit-train-batches 0.1 --gpu 0
       - name: Try pretrain lstm
-        run:  python -m varclr.pretrain --model lstm --name varclr-lstm --epochs 1 --gpu 0
+        run:  python -m varclr.pretrain --model lstm --name varclr-lstm --epochs 1 --limit-train-batches 0.1 --gpu 0
       - name: Try pretrain bert
-        run: python -m varclr.pretrain --model bert --name varclr-codebert --epochs 1 --sp-model split  --last-n-layer-output 4 --batch-size 64 --lr 1e-5 --gpu 0
+        run: python -m varclr.pretrain --model bert --name varclr-codebert --epochs 1 --limit-train-batches 0.01 --sp-model split  --last-n-layer-output 4 --batch-size 64 --lr 1e-5 --gpu 0
