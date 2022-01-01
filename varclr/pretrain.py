@@ -10,7 +10,7 @@ from pytorch_lightning.loggers import WandbLogger
 from transformers import AutoModel
 
 from varclr.data.dataset import RenamesDataModule
-from varclr.models import Model
+from varclr.models.model import Model
 from varclr.models.tokenizers import PretrainedTokenizer
 from varclr.utils.options import add_options
 
@@ -69,14 +69,14 @@ if __name__ == "__main__":
             ModelCheckpoint(monitor=f"loss/val_{os.path.basename(dm.train_data_file)}"),
         ]
 
-    wandb_logger = WandbLogger(name=args.name, project="idbench_new", log_model=True)
+    wandb_logger = WandbLogger(name=args.name, project="varclr", log_model=True)
     wandb_logger.log_hyperparams(args)
     args = argparse.Namespace(**wandb_logger.experiment.config)
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         logger=wandb_logger,
         gpus=args.gpu,
-        auto_select_gpus=True,
+        auto_select_gpus=args.gpu > 0,
         gradient_clip_val=args.grad_clip,
         callbacks=callbacks,
         progress_bar_refresh_rate=10,
@@ -89,6 +89,4 @@ if __name__ == "__main__":
         trainer.test(datamodule=dm)
     else:
         # save in hf transformer ckpt format
-        if "bert" in args.model:
-            model.encoder.transformer.save_pretrained("bert_saved")
         trainer.test(model, datamodule=dm)

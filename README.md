@@ -34,10 +34,10 @@ This repository contains code and pre-trained models for VarCLR, a contrastive l
     - [Load the IdBench benchmark](#load-the-idbench-benchmark)
     - [Compute VarCLR scores and evaluate](#compute-varclr-scores-and-evaluate)
     - [Let's compare with the original CodeBERT](#lets-compare-with-the-original-codebert)
+  - [Pre-train your own VarCLR models](#pre-train-your-own-varclr-models)
   - [Results on IdBench benchmarks](#results-on-idbench-benchmarks)
     - [Similarity](#similarity)
     - [Relatedness](#relatedness)
-  - [Pre-train your own VarCLR models](#pre-train-your-own-varclr-models)
   - [Cite](#cite)
 
 ### Step 0: Install
@@ -129,6 +129,20 @@ print(b2.evaluate(codebert.score(*b2.get_inputs())))
 # {'spearmanr': 0.3909218857993804, 'pearsonr': 0.3378219622284688}
 ```
 
+### Pre-train your own VarCLR models
+
+You can pretrain and get the same VarCLR model variants with the following code.
+
+```bash
+python -m varclr.pretrain --model avg --name varclr-avg
+python -m varclr.pretrain --model lstm --name varclr-lstm
+python -m varclr.pretrain --model bert --name varclr-codebert --sp-model split --last-n-layer-output 4 --batch-size 64 --lr 1e-5 --epochs 1
+```
+
+The training progress and test results will be presented in the wandb dashboard. For reference, our training curves look like the following:
+
+![training progress](docs/_static/images/training.jpeg)
+
 ### Results on [IdBench](https://conf.researchr.org/details/icse-2021/icse-2021-papers/3/IdBench-Evaluating-Semantic-Representations-of-Identifier-Names-in-Source-Code) benchmarks
 
 #### Similarity
@@ -158,10 +172,6 @@ print(b2.evaluate(codebert.score(*b2.get_inputs())))
 |                  |          |          |          |
 | Combined-IdBench | 0.71     | 0.78     | 0.79     |
 | Combined-VarCLR  | **0.79** | **0.81** | **0.85** |
-
-### Pre-train your own VarCLR models
-
-Coming soon.
 
 ### Cite
 
