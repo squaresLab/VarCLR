@@ -1,7 +1,7 @@
 import numpy as np
 
 from varclr.benchmarks import Benchmark
-from varclr.models import Encoder
+from varclr.models.model import Encoder
 
 
 def test_codebert():
