@@ -49,7 +49,7 @@ pip install -e .
 ### Step 1: Load a Pre-trained VarCLR Model
 
 ```python
-from varclr.models import Encoder
+from varclr.models.model import Encoder
 model = Encoder.from_pretrained("varclr-codebert")
 ```
 
