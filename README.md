@@ -180,7 +180,7 @@ If you find VarCLR useful in your research, please cite our paper@ICSE2022:
 ```bibtex
 @misc{chen2021varclr,
       title={VarCLR: Variable Semantic Representation Pre-training via Contrastive Learning},
-      author={Qibin Chen and Jeremy Lacomis and Edward J. Schwartz and Graham Neubig and Bogdan Vasilescu and Claire Le Goues},
+      author={Qibin Chen and Jeremy Lacomis and Edward J. Schwartz and Graham Neubig and Bogdan Vasilescu and Claire {Le~Goues}},
       year={2021},
       eprint={2112.02650},
       archivePrefix={arXiv},
