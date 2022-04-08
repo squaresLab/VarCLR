@@ -147,7 +147,7 @@ python -m varclr.pretrain --model bert --name varclr-codebert --sp-model split -
 
 The training progress and test results will be presented in the wandb dashboard. For reference, our training curves look like the following:
 
-![training progress](docs/_static/images/training.jpeg)
+![training progress](docs/_static/images/training.png)
 
 ### Results on [IdBench](https://conf.researchr.org/details/icse-2021/icse-2021-papers/3/IdBench-Evaluating-Semantic-Representations-of-Identifier-Names-in-Source-Code) benchmarks
 
