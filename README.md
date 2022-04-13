@@ -25,13 +25,7 @@ This repository contains code and pre-trained models for VarCLR, a contrastive l
   - [Step 0: Install](#step-0-install)
   - [Step 1: Load a Pre-trained VarCLR Model](#step-1-load-a-pre-trained-varclr-model)
   - [Step 2: VarCLR Variable Embeddings](#step-2-varclr-variable-embeddings)
-    - [Get embedding of one variable](#g@inproceedings{ChenVarCLR2022,
-  author = {Chen, Qibin and Lacomis, Jeremy and Schwartz, Edward J. and Neubig, Graham and Vasilescu, Bogdan and {Le~Goues}, Claire},
-  title = {{VarCLR}: {Variable} Semantic Representation Pre-training via Contrastive Learning},
-  booktitle = {International Conference on Software Engineering},
-  year = {2022},
-  series = {ICSE '22}
-}et-embedding-of-one-variable)
+    - [Get embedding of one variable](#get-embedding-of-one-variable)
     - [Get embeddings of list of variables (supports batching)](#get-embeddings-of-list-of-variables-supports-batching)
   - [Step 2: Get VarCLR Similarity Scores](#step-2-get-varclr-similarity-scores)
     - [Get similarity scores of N variable pairs](#get-similarity-scores-of-n-variable-pairs)
