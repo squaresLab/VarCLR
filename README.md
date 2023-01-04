@@ -8,7 +8,7 @@
 
 <div align="center">
 
-[![Unittest](https://img.shields.io/github/workflow/status/squaresLab/VarCLR/Test)](https://github.com/squaresLab/VarCLR/actions/workflows/test.yml)
+[![Unittest](https://img.shields.io/github/actions/workflow/status/squaresLab/VarCLR/test.yml?branch=main)](https://github.com/squaresLab/VarCLR/actions/workflows/test.yml)
 [![GitHub stars](https://img.shields.io/github/stars/squaresLab/VarCLR)](https://github.com/squaresLab/VarCLR/stargazers)
 [![GitHub license](https://img.shields.io/github/license/squaresLab/varclr)](https://github.com/squaresLab/VarCLR/blob/master/LICENSE)
 [![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
